@@ -1,11 +1,16 @@
 -- Kingdom Hearts Final Mix (Steam)
--- Read-only battle-entity-pool comparison for Ragnarok's projectile.
--- v3: paired with KH1FM_SoraComboVisuals_Controller_v13_BANKSAFE.lua.
+-- Read-only battle-task/controller comparison for Ragnarok's projectile.
+-- v4: paired with KH1FM_SoraComboVisuals_Controller_v13_BANKSAFE.lua.
+--
+-- FINDING THAT LED TO THIS TEST
+--   The v3 full battle-entity-pool capture found no Ragnarok projectile.
+--   The two entities that became active were ordinary enemies. The game's
+--   executable initializes two separate 96-slot battle-task schedulers after
+--   the actor pool. Their records contain callback and owner pointers, making
+--   them the next layer that can hold Ragnarok's effect/attack controller.
 --
 -- PURPOSE
---   The copied F7 motion supplies Ragnarok's pose, but the genuine attack's
---   blast is created by a separate battle entity/controller. This diagnostic
---   compares every occupied entry in the game's 96-slot battle-entity pool
+--   Compare every active task record and the first 0x100 bytes of its owner
 --   during:
 --
 --     A. one complete genuine Ragnarok (F0 through F7 and its blast), and
@@ -13,22 +18,22 @@
 --
 -- GAME-MEMORY WRITES: NONE
 --   This script only reads game memory. Its only writes are the report and
---   binary entry-capture files beside this Lua script.
+--   binary capture files beside this Lua script.
 --
 -- TEST SETUP
 --   1. Keep the working v13 BANKSAFE controller and its MSET enabled.
---   2. Remove/disable all older diagnostics and test Lua files.
---   3. Add only this diagnostic beside v13.
+--   2. Disable every older diagnostic/test Lua, including EntityPoolCompare.
+--   3. Add only this diagnostic beside v13 and begin from normal control.
 --
 -- TEST ORDER
 --   1. Perform one COMPLETE genuine Ragnarok, including the final blast.
 --   2. Wait for: GENUINE CAPTURE COMPLETE / PERFORM REPLACEMENT.
---   3. Perform one modified CC or CD aerial starter, then press Attack a
---      second time so the replacement Ragnarok F7 visual occurs.
+--   3. Perform exactly one modified CC or CD aerial starter, then press Attack
+--      once more so the replacement Ragnarok F7 visual occurs.
 --   4. Stop attacking and wait for REPORT SAVED.
 --   5. Send back both generated files:
---        KH1FM_RagnarokProjectile_EntityPoolCompare_v3_V13_Report.txt
---        KH1FM_RagnarokProjectile_EntityPoolCompare_v3_V13_Entries.bin
+--        KH1FM_RagnarokProjectile_TaskControllerCompare_v4_V13_Report.txt
+--        KH1FM_RagnarokProjectile_TaskControllerCompare_v4_V13_Tasks.bin
 
 -- ========================================================================
 -- SETTINGS
@@ -40,15 +45,17 @@ local MAX_GENUINE_TICKS = 1800
 local MAX_REPLACEMENT_TICKS = 900
 
 local REPORT_FILENAME =
-    "KH1FM_RagnarokProjectile_EntityPoolCompare_v3_V13_Report.txt"
+    "KH1FM_RagnarokProjectile_TaskControllerCompare_v4_V13_Report.txt"
 local CAPTURE_FILENAME =
-    "KH1FM_RagnarokProjectile_EntityPoolCompare_v3_V13_Entries.bin"
+    "KH1FM_RagnarokProjectile_TaskControllerCompare_v4_V13_Tasks.bin"
 
--- Each binary record is a 32-byte little-endian header followed by one
--- complete 0x4B0-byte pool entry. See the report header for field order.
-local RECORD_HEADER_LENGTH = 0x20
-local ENTITY_ENTRY_LENGTH = 0x4B0
-local RECORD_LENGTH = RECORD_HEADER_LENGTH + ENTITY_ENTRY_LENGTH
+local TASK_ENTRY_LENGTH = 0x28
+local TASK_COUNT = 96
+local OWNER_CAPTURE_LENGTH = 0x100
+local RECORD_HEADER_LENGTH = 0x38
+local RECORD_LENGTH = RECORD_HEADER_LENGTH
+    + TASK_ENTRY_LENGTH
+    + OWNER_CAPTURE_LENGTH
 
 -- ========================================================================
 -- VERIFIED ADDRESSES FOR THE TESTED STEAM EXECUTABLE
@@ -56,18 +63,18 @@ local RECORD_LENGTH = RECORD_HEADER_LENGTH + ENTITY_ENTRY_LENGTH
 
 local SORA_POINTER = 0x2537E48
 
--- Module-relative battle-entity pool. The executable iterates exactly 96
--- entries from 0x2D372A0 to 0x2D534A0, stepping by 0x4B0.
-local ENTITY_POOL_BASE = 0x2D372A0
-local ENTITY_POOL_COUNT = 96
-local ENTITY_POOL_FLAGS_OFFSET = 0x374
+-- The native initializer supplies entry size 0x28 and count 0x60 to each
+-- scheduler. These are module-relative storage addresses.
+local TASK_POOLS = {
+    { id = 1, name = "BATTLE_TASK_A", base = 0x2D59C00 },
+    { id = 2, name = "BATTLE_TASK_B", base = 0x2D5BAF0 },
+}
 
--- Useful fields inside an entity entry, recorded in APPEAR/DISAPPEAR lines.
-local ENTITY_OBJECT_STATE_OFFSET = 0x000
-local ENTITY_TYPE_OFFSET = 0x006
-local ENTITY_RESOURCE_OFFSET = 0x130
-local ENTITY_ANIMATION_OFFSET = 0x164
-local ENTITY_MOTION_INDEX_OFFSET = 0x168
+local TASK_FLAGS_OFFSET = 0x00
+local TASK_PRIORITY_OFFSET = 0x04
+local TASK_CALLBACK_OFFSET = 0x10
+local TASK_OWNER_OFFSET = 0x18
+local TASK_SECONDARY_CALLBACK_OFFSET = 0x20
 
 local CURRENT_ANIMATION_OFFSET = 0x164
 local RESOLVED_MOTION_INDEX_OFFSET = 0x168
@@ -95,7 +102,8 @@ local globalTick = 0
 local frameCount = 0
 local recordCount = 0
 local eventCount = 0
-local failedEntryReads = 0
+local failedTaskReads = 0
+local failedOwnerReads = 0
 local genuineAttempt = 0
 local replacementAttempt = 0
 
@@ -110,8 +118,8 @@ local previousSora = 0
 local previousAnimation = nil
 local previousIndex = nil
 local previousTime = nil
-local previousActive = {}
-local lastKnownEntity = {}
+local previousTasks = {}
+local waitingBaselineReady = false
 
 local reportLines = {}
 local captureFile = nil
@@ -123,7 +131,7 @@ local finished = false
 -- ========================================================================
 
 local function diagnosticPrint(message)
-    ConsolePrint("[RagnarokEntityPoolCompareV3] " .. message)
+    ConsolePrint("[RagnarokTaskCompareV4] " .. message)
 end
 
 local function unsigned32(value)
@@ -140,15 +148,6 @@ local function appendLine(line)
     reportLines[#reportLines + 1] = line
 end
 
-local function hasBit(value, bitValue)
-    return math.floor(unsigned32(value) / bitValue) % 2 == 1
-end
-
-local function isOccupied(flags)
-    -- Native pool iteration accepts bit 0 and rejects bit 1.
-    return hasBit(flags, 1) and not hasBit(flags, 2)
-end
-
 local function readModuleInt(address)
     local ok, value = pcall(ReadInt, address)
     if not ok or value == nil then
@@ -157,8 +156,8 @@ local function readModuleInt(address)
     return unsigned32(value)
 end
 
-local function readModuleByte(address)
-    local ok, value = pcall(ReadByte, address)
+local function readModuleLong(address)
+    local ok, value = pcall(ReadLong, address)
     if not ok or value == nil then
         return 0
     end
@@ -227,6 +226,24 @@ local function phaseCode()
     return 0
 end
 
+local function taskKey(poolID, slot)
+    return string.format("%d:%02d", poolID, slot)
+end
+
+local function pointerLow(pointer)
+    if pointer == nil or pointer == 0 then
+        return 0
+    end
+    return pointer % 4294967296
+end
+
+local function pointerHigh(pointer)
+    if pointer == nil or pointer == 0 then
+        return 0
+    end
+    return math.floor(pointer / 4294967296) % 4294967296
+end
+
 local function byteArrayToBinary(bytes)
     local parts = {}
     local index = 1
@@ -249,23 +266,36 @@ local function littleEndianU32(value)
     return string.char(b1, b2, b3, b4)
 end
 
+local ZERO_OWNER_BLOCK = string.rep("\0", OWNER_CAPTURE_LENGTH)
+
 local function makeRecordHeader(
     recordIndex,
     currentPhaseCode,
     currentPhaseTick,
     currentGlobalTick,
     soraAnimation,
-    poolSlot,
-    poolFlags
+    poolID,
+    taskSlot,
+    taskFlags,
+    priority,
+    callback,
+    owner,
+    ownerLength
 )
     return littleEndianU32(recordIndex)
         .. littleEndianU32(currentPhaseCode)
         .. littleEndianU32(currentPhaseTick)
         .. littleEndianU32(currentGlobalTick)
         .. littleEndianU32(soraAnimation)
-        .. littleEndianU32(poolSlot)
-        .. littleEndianU32(poolFlags)
-        .. littleEndianU32(ENTITY_ENTRY_LENGTH)
+        .. littleEndianU32(poolID)
+        .. littleEndianU32(taskSlot)
+        .. littleEndianU32(taskFlags)
+        .. littleEndianU32(priority)
+        .. littleEndianU32(pointerLow(callback))
+        .. littleEndianU32(pointerHigh(callback))
+        .. littleEndianU32(pointerLow(owner))
+        .. littleEndianU32(pointerHigh(owner))
+        .. littleEndianU32(ownerLength)
 end
 
 local function openCaptureFile()
@@ -312,44 +342,137 @@ local function writeReport()
     return true, path
 end
 
-local function resetPreviousState()
+local function resetAnimationHistory()
     previousAnimation = nil
     previousIndex = nil
     previousTime = nil
-    previousActive = {}
-    lastKnownEntity = {}
 end
 
-local function entitySummary(slot, flags)
-    local base = ENTITY_POOL_BASE + slot * ENTITY_ENTRY_LENGTH
-    local summary = {
+local function readTaskIdentity(pool, slot)
+    local base = pool.base + slot * TASK_ENTRY_LENGTH
+    local flags = readModuleInt(base + TASK_FLAGS_OFFSET) % 0x10000
+    if flags == 0 then
+        return nil
+    end
+
+    local identity = {
+        poolID = pool.id,
+        poolName = pool.name,
         slot = slot,
-        flags = unsigned32(flags),
-        objectState = readModuleInt(base + ENTITY_OBJECT_STATE_OFFSET),
-        entityType = readModuleByte(base + ENTITY_TYPE_OFFSET),
-        resource = readModuleInt(base + ENTITY_RESOURCE_OFFSET),
-        animation = readModuleByte(base + ENTITY_ANIMATION_OFFSET),
-        motionIndex = readModuleInt(base + ENTITY_MOTION_INDEX_OFFSET)
-            % 0x10000,
+        base = base,
+        flags = flags,
+        priority = readModuleInt(base + TASK_PRIORITY_OFFSET),
+        callback = readModuleLong(base + TASK_CALLBACK_OFFSET),
+        owner = readModuleLong(base + TASK_OWNER_OFFSET),
+        secondary = readModuleLong(base + TASK_SECONDARY_CALLBACK_OFFSET),
     }
-    return summary
+    identity.fingerprint = string.format(
+        "%04X:%08X:%X:%X:%X",
+        identity.flags,
+        identity.priority,
+        identity.callback,
+        identity.owner,
+        identity.secondary
+    )
+    return identity
 end
 
-local function formatEntitySummary(summary)
+local function scanTaskIdentities()
+    local current = {}
+    for _, pool in ipairs(TASK_POOLS) do
+        local slot = 0
+        while slot < TASK_COUNT do
+            local identity = readTaskIdentity(pool, slot)
+            if identity ~= nil then
+                current[taskKey(pool.id, slot)] = identity
+            end
+            slot = slot + 1
+        end
+    end
+    return current
+end
+
+local function updateWaitingBaseline()
+    previousTasks = scanTaskIdentities()
+    waitingBaselineReady = true
+end
+
+local function formatTaskIdentity(identity)
     return string.format(
-        "slot=%02d flags=0x%08X state=0x%08X type=0x%02X "
-            .. "resource=0x%08X animation=0x%02X index=0x%04X",
-        summary.slot,
-        summary.flags,
-        summary.objectState,
-        summary.entityType,
-        summary.resource,
-        summary.animation,
-        summary.motionIndex
+        "pool=%s pool_id=%d slot=%02d flags=0x%04X priority=0x%08X "
+            .. "callback=0x%X owner=0x%X secondary=0x%X",
+        identity.poolName,
+        identity.poolID,
+        identity.slot,
+        identity.flags,
+        identity.priority,
+        identity.callback,
+        identity.owner,
+        identity.secondary
     )
 end
 
-local function recordPoolFrame(soraAnimation, soraIndex, animationTime)
+local function captureOwner(owner)
+    if owner == nil or owner == 0 then
+        return ZERO_OWNER_BLOCK, 0
+    end
+
+    local ok, bytes = pcall(
+        ReadArray,
+        owner,
+        OWNER_CAPTURE_LENGTH,
+        true
+    )
+    if not ok or bytes == nil or #bytes < OWNER_CAPTURE_LENGTH then
+        failedOwnerReads = failedOwnerReads + 1
+        return ZERO_OWNER_BLOCK, 0
+    end
+    return byteArrayToBinary(bytes), OWNER_CAPTURE_LENGTH
+end
+
+local function captureTask(identity, soraAnimation)
+    local ok, taskBytes = pcall(
+        ReadArray,
+        identity.base,
+        TASK_ENTRY_LENGTH
+    )
+    if not ok or taskBytes == nil or #taskBytes < TASK_ENTRY_LENGTH then
+        failedTaskReads = failedTaskReads + 1
+        appendLine(string.format(
+            "TASK_READ_FAILED phase=%s phase_tick=%d global_tick=%d "
+                .. "pool=%s slot=%02d error=%s",
+            phaseLabel(),
+            phaseTick,
+            globalTick,
+            identity.poolName,
+            identity.slot,
+            tostring(taskBytes)
+        ))
+        return false
+    end
+
+    local ownerBinary, ownerLength = captureOwner(identity.owner)
+    recordCount = recordCount + 1
+    captureFile:write(makeRecordHeader(
+        recordCount,
+        phaseCode(),
+        phaseTick,
+        globalTick,
+        soraAnimation,
+        identity.poolID,
+        identity.slot,
+        identity.flags,
+        identity.priority,
+        identity.callback,
+        identity.owner,
+        ownerLength
+    ))
+    captureFile:write(byteArrayToBinary(taskBytes))
+    captureFile:write(ownerBinary)
+    return true
+end
+
+local function recordTaskFrame(soraAnimation, soraIndex, animationTime)
     if captureFile == nil then
         return
     end
@@ -357,106 +480,80 @@ local function recordPoolFrame(soraAnimation, soraIndex, animationTime)
     frameCount = frameCount + 1
     local firstRecord = recordCount + 1
     local recordsThisFrame = 0
-    local activeNow = {}
-    local activeSlotLabels = {}
+    local current = scanTaskIdentities()
+    local activeLabels = {}
 
-    local slot = 0
-    while slot < ENTITY_POOL_COUNT do
-        local base = ENTITY_POOL_BASE + slot * ENTITY_ENTRY_LENGTH
-        local flags = readModuleInt(base + ENTITY_POOL_FLAGS_OFFSET)
-
-        if isOccupied(flags) then
-            activeNow[slot] = true
-            activeSlotLabels[#activeSlotLabels + 1] = string.format("%02d", slot)
-
-            local summary = entitySummary(slot, flags)
-            lastKnownEntity[slot] = summary
-            if not previousActive[slot] then
-                eventCount = eventCount + 1
-                local eventLine = string.format(
-                    "ENTITY_EVENT %04d phase=%s phase_tick=%d global_tick=%d "
-                        .. "kind=APPEAR %s",
-                    eventCount,
-                    phaseLabel(),
-                    phaseTick,
-                    globalTick,
-                    formatEntitySummary(summary)
-                )
-                appendLine(eventLine)
-                diagnosticPrint(eventLine)
-            end
-
-            local ok, entry = pcall(
-                ReadArray,
-                base,
-                ENTITY_ENTRY_LENGTH
+    for key, identity in pairs(current) do
+        local previous = previousTasks[key]
+        if previous == nil then
+            eventCount = eventCount + 1
+            local line = string.format(
+                "TASK_EVENT %04d phase=%s phase_tick=%d global_tick=%d "
+                    .. "kind=APPEAR %s",
+                eventCount,
+                phaseLabel(),
+                phaseTick,
+                globalTick,
+                formatTaskIdentity(identity)
             )
-            if ok and entry ~= nil and #entry >= ENTITY_ENTRY_LENGTH then
-                recordCount = recordCount + 1
-                recordsThisFrame = recordsThisFrame + 1
-                captureFile:write(makeRecordHeader(
-                    recordCount,
-                    phaseCode(),
-                    phaseTick,
-                    globalTick,
-                    soraAnimation,
-                    slot,
-                    flags
-                ))
-                captureFile:write(byteArrayToBinary(entry))
-            else
-                failedEntryReads = failedEntryReads + 1
-                appendLine(string.format(
-                    "ENTRY_READ_FAILED phase=%s phase_tick=%d global_tick=%d "
-                        .. "slot=%02d error=%s",
-                    phaseLabel(),
-                    phaseTick,
-                    globalTick,
-                    slot,
-                    tostring(entry)
-                ))
-            end
+            appendLine(line)
+            diagnosticPrint(line)
+        elseif previous.fingerprint ~= identity.fingerprint then
+            eventCount = eventCount + 1
+            local line = string.format(
+                "TASK_EVENT %04d phase=%s phase_tick=%d global_tick=%d "
+                    .. "kind=REPLACE old_fingerprint=%s %s",
+                eventCount,
+                phaseLabel(),
+                phaseTick,
+                globalTick,
+                previous.fingerprint,
+                formatTaskIdentity(identity)
+            )
+            appendLine(line)
+            diagnosticPrint(line)
         end
 
-        slot = slot + 1
+        activeLabels[#activeLabels + 1] = string.format(
+            "%d:%02d",
+            identity.poolID,
+            identity.slot
+        )
+        if captureTask(identity, soraAnimation) then
+            recordsThisFrame = recordsThisFrame + 1
+        end
     end
 
-    slot = 0
-    while slot < ENTITY_POOL_COUNT do
-        if previousActive[slot] and not activeNow[slot] then
+    for key, previous in pairs(previousTasks) do
+        if current[key] == nil then
             eventCount = eventCount + 1
-            local prior = lastKnownEntity[slot]
-            local description = "slot=" .. string.format("%02d", slot)
-            if prior ~= nil then
-                description = formatEntitySummary(prior)
-            end
-            local eventLine = string.format(
-                "ENTITY_EVENT %04d phase=%s phase_tick=%d global_tick=%d "
+            local line = string.format(
+                "TASK_EVENT %04d phase=%s phase_tick=%d global_tick=%d "
                     .. "kind=DISAPPEAR %s",
                 eventCount,
                 phaseLabel(),
                 phaseTick,
                 globalTick,
-                description
+                formatTaskIdentity(previous)
             )
-            appendLine(eventLine)
-            diagnosticPrint(eventLine)
+            appendLine(line)
+            diagnosticPrint(line)
         end
-        slot = slot + 1
     end
 
-    previousActive = activeNow
+    previousTasks = current
+    table.sort(activeLabels)
 
-    local slotList = "NONE"
-    if #activeSlotLabels > 0 then
-        slotList = table.concat(activeSlotLabels, ",")
+    local activeList = "NONE"
+    if #activeLabels > 0 then
+        activeList = table.concat(activeLabels, ",")
     end
 
     appendLine(string.format(
         "FRAME %05d phase=%s phase_tick=%d global_tick=%d "
             .. "sora_animation=0x%02X name=%s sora_index=0x%04X "
             .. "sora_time=%.4f first_record=%06d record_count=%d "
-            .. "active_slots=%s",
+            .. "active_tasks=%s",
         frameCount,
         phaseLabel(),
         phaseTick,
@@ -467,7 +564,7 @@ local function recordPoolFrame(soraAnimation, soraIndex, animationTime)
         animationTime,
         firstRecord,
         recordsThisFrame,
-        slotList
+        activeList
     ))
 end
 
@@ -507,22 +604,20 @@ local function recordFrame(sora)
         diagnosticPrint(line)
     end
 
-    recordPoolFrame(animation, index, animationTime)
-
+    recordTaskFrame(animation, index, animationTime)
     previousAnimation = animation
     previousIndex = index
     previousTime = animationTime
-
     return animation, index
 end
 
 local function startGenuineCapture(sora)
     local opened, result = openCaptureFile()
     if not opened then
-        diagnosticPrint("ENTRY CAPTURE FILE FAILED: " .. result)
+        diagnosticPrint("TASK CAPTURE FILE FAILED: " .. result)
         appendLine("CAPTURE_FILE_ERROR " .. result)
     else
-        diagnosticPrint("ENTRY CAPTURE FILE OPEN: " .. result)
+        diagnosticPrint("TASK CAPTURE FILE OPEN: " .. result)
     end
 
     genuineAttempt = genuineAttempt + 1
@@ -531,12 +626,13 @@ local function startGenuineCapture(sora)
     sawGenuineF7 = false
     genuineOutsideTicks = 0
     previousSora = sora
-    resetPreviousState()
+    resetAnimationHistory()
     appendLine("")
     appendLine(string.format(
-        "GENUINE ATTEMPT %02d BEGIN global_tick=%d",
+        "GENUINE ATTEMPT %02d BEGIN global_tick=%d waiting_baseline=%s",
         genuineAttempt,
-        globalTick
+        globalTick,
+        tostring(waitingBaselineReady)
     ))
     diagnosticPrint(string.format(
         "GENUINE CAPTURE %02d STARTED. Complete every Ragnarok prompt.",
@@ -553,10 +649,10 @@ local function completeGenuineCapture()
     ))
     phase = "waiting_replacement"
     phaseTick = 0
-    resetPreviousState()
+    resetAnimationHistory()
     diagnosticPrint("GENUINE CAPTURE COMPLETE.")
     diagnosticPrint(
-        "PERFORM REPLACEMENT: one CC or CD starter, then press Attack again."
+        "PERFORM REPLACEMENT: one CC or CD starter, then press Attack once more."
     )
 end
 
@@ -571,7 +667,7 @@ local function retryGenuine(reason)
     phaseTick = 0
     sawGenuineF7 = false
     genuineOutsideTicks = 0
-    resetPreviousState()
+    resetAnimationHistory()
     diagnosticPrint("GENUINE CAPTURE REJECTED: " .. reason)
     diagnosticPrint("Perform one complete genuine Ragnarok again.")
 end
@@ -589,15 +685,17 @@ local function startReplacementCapture(sora, animation)
         replacementExpectedSecondID = ID_CE
     end
     previousSora = sora
-    resetPreviousState()
+    resetAnimationHistory()
     appendLine("")
     appendLine(string.format(
         "REPLACEMENT ATTEMPT %02d BEGIN global_tick=%d "
-            .. "start_ID=0x%02X expected_second_ID=0x%02X",
+            .. "start_ID=0x%02X expected_second_ID=0x%02X "
+            .. "waiting_baseline=%s",
         replacementAttempt,
         globalTick,
         replacementStartID,
-        replacementExpectedSecondID
+        replacementExpectedSecondID,
+        tostring(waitingBaselineReady)
     ))
     diagnosticPrint(string.format(
         "REPLACEMENT CAPTURE %02d STARTED at 0x%02X. Press Attack once more.",
@@ -619,7 +717,7 @@ local function retryReplacement(reason)
     replacementOutsideTicks = 0
     replacementStartID = 0
     replacementExpectedSecondID = 0
-    resetPreviousState()
+    resetAnimationHistory()
     diagnosticPrint("REPLACEMENT CAPTURE REJECTED: " .. reason)
     diagnosticPrint("Try one CC or CD aerial starter, then one second press.")
 end
@@ -637,14 +735,15 @@ local function finishAllCaptures()
     appendLine("CAPTURE COMPLETE")
     appendLine(string.format(
         "SUMMARY genuine_attempts=%d replacement_attempts=%d frames=%d "
-            .. "events=%d records=%d failed_entry_reads=%d "
-            .. "record_bytes=%d",
+            .. "events=%d records=%d failed_task_reads=%d "
+            .. "failed_owner_reads=%d record_bytes=%d",
         genuineAttempt,
         replacementAttempt,
         frameCount,
         eventCount,
         recordCount,
-        failedEntryReads,
+        failedTaskReads,
+        failedOwnerReads,
         recordCount * RECORD_LENGTH
     ))
 
@@ -655,7 +754,7 @@ local function finishAllCaptures()
 
     if saved then
         diagnosticPrint("REPORT SAVED: " .. result)
-        diagnosticPrint("Send the EntityPoolCompare Report.txt and Entries.bin files.")
+        diagnosticPrint("Send the TaskControllerCompare Report.txt and Tasks.bin files.")
     else
         diagnosticPrint("REPORT SAVE FAILED: " .. result)
     end
@@ -693,43 +792,47 @@ function _OnInit()
     frameCount = 0
     recordCount = 0
     eventCount = 0
-    failedEntryReads = 0
+    failedTaskReads = 0
+    failedOwnerReads = 0
     genuineAttempt = 0
     replacementAttempt = 0
     previousSora = 0
+    previousTasks = {}
+    waitingBaselineReady = false
     reportLines = {
-        "KH1FM Ragnarok projectile entity-pool comparison v3 / v13",
+        "KH1FM Ragnarok projectile task-controller comparison v4 / v13",
         "Game memory writes: NONE",
         "Required companion: v13 BANKSAFE controller and its verified MSET.",
         "Do not run another diagnostic concurrently.",
         string.format(
-            "Pool: module+0x%08X; entries=%d; entry_length=0x%03X; flags=+0x%03X.",
-            ENTITY_POOL_BASE,
-            ENTITY_POOL_COUNT,
-            ENTITY_ENTRY_LENGTH,
-            ENTITY_POOL_FLAGS_OFFSET
+            "Task pools: A=module+0x%08X, B=module+0x%08X; entries=%d; entry_length=0x%02X.",
+            TASK_POOLS[1].base,
+            TASK_POOLS[2].base,
+            TASK_COUNT,
+            TASK_ENTRY_LENGTH
         ),
         string.format(
-            "Binary record length=0x%03X (%d bytes): 0x20-byte header + 0x4B0 entry.",
+            "Binary record length=0x%03X (%d bytes): 0x38 header + 0x28 task + 0x100 owner.",
             RECORD_LENGTH,
             RECORD_LENGTH
         ),
-        "Header is eight little-endian u32 fields in this order:",
-        "record_index, phase_code, phase_tick, global_tick, Sora_animation_ID, pool_slot, pool_flags, entry_length.",
+        "Header is fourteen little-endian u32 fields in this order:",
+        "record_index, phase_code, phase_tick, global_tick, Sora_animation_ID, pool_id, task_slot, task_flags, priority, callback_low, callback_high, owner_low, owner_high, owner_capture_length.",
         "phase_code: 1=genuine Ragnarok, 2=v13 replacement.",
+        "A zero owner_capture_length means no readable owner was available; its fixed 0x100-byte area is zero-filled.",
+        "The script monitors both pools while waiting, so first-frame events are compared with the preceding idle frame.",
         "FRAME lines map each game frame to its first binary record and record count.",
-        "Only entries satisfying native occupancy flags (bit0=1 and bit1=0) are saved.",
-        "Order: complete genuine Ragnarok, then one CC/CD replacement plus second press.",
+        "Order: complete genuine Ragnarok, then exactly one CC/CD replacement plus second press.",
         "",
         "TRACE BEGIN",
     }
     fileOpenFailed = false
     finished = false
-    resetPreviousState()
+    resetAnimationHistory()
 
     diagnosticPrint("READY. READ-ONLY game-memory diagnostic.")
     diagnosticPrint("Keep v13 enabled; remove all older diagnostics/tests.")
-    diagnosticPrint("STEP 1: perform one complete genuine Ragnarok through its blast.")
+    diagnosticPrint("Wait one second at idle, then perform complete genuine Ragnarok.")
 end
 
 function _OnFrame()
@@ -754,6 +857,7 @@ function _OnFrame()
         if animation == ID_RAGNAROK_FIRST then
             startGenuineCapture(sora)
         else
+            updateWaitingBaseline()
             return
         end
     elseif phase == "waiting_replacement" then
@@ -762,6 +866,7 @@ function _OnFrame()
         then
             startReplacementCapture(sora, animation)
         else
+            updateWaitingBaseline()
             return
         end
     end
