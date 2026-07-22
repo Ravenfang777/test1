@@ -1,5 +1,5 @@
 -- Kingdom Hearts Final Mix (Steam)
--- Combined Sora combo/visual controller v12 with verified defense protection.
+-- Combined Sora combo/visual controller v13 with bank-safe motion routing.
 --
 -- REQUIRED MSET (unchanged from v11; byte-for-byte identical)
 --   xa_ex_0010_SoraComboVisuals_v11_EFFECTS_DEFENSE_POC.mset
@@ -21,7 +21,7 @@
 --
 -- VERIFIED DEFENSE NOTE
 --   Controlled hit tests proved that Sora runtime byte +0x00 bit 0x80 is the
---   post-hit damage-rejection flag. v12 preserves every other bit and applies
+--   post-hit damage-rejection flag. v13 preserves every other bit and applies
 --   only 0x80 while replaced D4/DC is active. Repeated front/rear Guard and
 --   Dodge Roll contacts produced no HP loss or damage animation. The bit is
 --   cleared after normal exits and left to the game after any damage state.
@@ -49,6 +49,7 @@ local MAX_DEFENSE_PROTECTION_FRAME = 110
 
 local SORA_POINTER = 0x2537E48
 local POINTER_BANK_TABLE = 0x2EE3980
+local POINTER_BANK_COUNT = 64
 
 local CURRENT_ANIMATION_OFFSET = 0x164
 local RESOLVED_INDEX_OFFSET = 0x168
@@ -209,6 +210,7 @@ local sequenceNumber = 0
 local appliedPatches = {}
 local permanentPointerArray = 0
 local lastRouteError = nil
+local routesReadyAnnounced = false
 
 -- Full-animation defense protection state. The write is intentionally kept
 -- independent from motion routing so a route reset cannot widen its scope.
@@ -221,7 +223,7 @@ local defenseOwnedBit = false
 local defenseTimedOut = false
 
 local function log(message)
-    ConsolePrint("[SoraComboVisualsV12] " .. message)
+    ConsolePrint("[SoraComboVisualsV13] " .. message)
 end
 
 local function detail(message)
@@ -305,7 +307,7 @@ local function finishDefenseProtection(sora, nextAnimation, reason)
 
     -- Damage IDs 0x48..0x4D establish the game's own post-hit protection.
     -- Never clear 0x80 after such a transition. For ordinary locomotion,
-    -- clear only when v12 originally added the bit. Other actions are left to
+    -- clear only when v13 originally added the bit. Other actions are left to
     -- their own runtime controller; the game normally changes their flags.
     local receivedDamage = nextAnimation >= 0x48 and nextAnimation <= 0x4D
     local ordinaryExit = nextAnimation == 0x00
@@ -422,26 +424,92 @@ local function resolveCompressedPointer(encoded)
     return bankBase + bankOffset
 end
 
+local function compressedBankIndex(encoded)
+    local value = unsigned32(encoded)
+    if value < 0x80000000 then
+        return -1
+    end
+    return math.floor((value - 0x80000000) / 0x2000000)
+end
+
+local function encodeActualPointer(actual, preferredBank)
+    if actual == nil or actual <= 0 then
+        return 0
+    end
+
+    local function tryBank(bankIndex)
+        if bankIndex < 0 or bankIndex >= POINTER_BANK_COUNT then
+            return 0
+        end
+        local bankBase = ReadLong(POINTER_BANK_TABLE + bankIndex * 8)
+        if bankBase == nil or bankBase == 0 then
+            return 0
+        end
+        local offset = actual - bankBase
+        if offset < 0 or offset >= 0x2000000 then
+            return 0
+        end
+        return 0x80000000 + bankIndex * 0x2000000 + offset
+    end
+
+    if preferredBank ~= nil and preferredBank >= 0 then
+        local preferred = tryBank(preferredBank)
+        if preferred ~= 0 then
+            return preferred
+        end
+    end
+
+    local bankIndex = 0
+    while bankIndex < POINTER_BANK_COUNT do
+        if bankIndex ~= preferredBank then
+            local candidate = tryBank(bankIndex)
+            if candidate ~= 0 then
+                return candidate
+            end
+        end
+        bankIndex = bankIndex + 1
+    end
+    return 0
+end
+
 local function addMotionOffset(encoded, delta)
     local value = unsigned32(encoded)
     if value == 0 then
         return 0
     end
-    if value < 0x80000000 then
-        local direct = value + delta
-        if direct < 0 then
-            return 0
-        end
-        return direct
-    end
 
-    local bankPrefix = value - (value % 0x2000000)
-    local bankOffset = value % 0x2000000
-    local newOffset = bankOffset + delta
-    if newOffset < 0 or newOffset >= 0x2000000 then
+    local actual = resolveCompressedPointer(value)
+    if actual == 0 then
         return 0
     end
-    return bankPrefix + newOffset
+    local targetActual = actual + delta
+    if targetActual <= 0 then
+        return 0
+    end
+
+    if value < 0x80000000 and targetActual < 0x80000000 then
+        return targetActual
+    end
+
+    -- A physical MSET can straddle two 0x02000000 resource windows. v12
+    -- changed only the low bank offset and deferred forever when a negative
+    -- record delta crossed that boundary. Resolve to the physical address,
+    -- then find whichever active pointer bank owns the target address.
+    return encodeActualPointer(targetActual, compressedBankIndex(value))
+end
+
+local function motionPointersEqual(first, second)
+    local a = unsigned32(first)
+    local b = unsigned32(second)
+    if a == b then
+        return true
+    end
+    if a == 0 or b == 0 then
+        return false
+    end
+    local actualA = resolveCompressedPointer(a)
+    local actualB = resolveCompressedPointer(b)
+    return actualA ~= 0 and actualA == actualB
 end
 
 local function readResolvedIndex(sora)
@@ -478,7 +546,7 @@ local function expectedPointersFromCatch(pointerArray)
         local pointer = addMotionOffset(canonical65, delta)
         if pointer == 0 then
             return nil, string.format(
-                "slot 0x%02X delta crossed a pointer bank",
+                "slot 0x%02X physical address could not be encoded by an active pointer bank",
                 slot
             )
         end
@@ -577,14 +645,14 @@ local function inspectV11Layout(sora, allowTemporaryRoutes, allowPermanentRoutes
         local permanentPointer = permanentReplacementFor(slot, expected)
         local permanentlyValid = allowPermanentRoutes
             and permanentPointer ~= nil
-            and current == permanentPointer
+            and motionPointersEqual(current, permanentPointer)
         local temporarilyValid = allowTemporaryRoutes
             and ((slot == SLOT_C8 or slot == SLOT_C9 or slot == SLOT_CA)
-                and current == pointer65
+                and motionPointersEqual(current, pointer65)
                 or ((slot == SLOT_CD or slot == SLOT_CE)
-                    and current == pointer6F))
+                    and motionPointersEqual(current, pointer6F)))
 
-        if current ~= expectedPointer
+        if not motionPointersEqual(current, expectedPointer)
             and not permanentlyValid
             and not temporarilyValid
         then
@@ -628,11 +696,11 @@ local function restorePatches(reason)
     for index = #appliedPatches, 1, -1 do
         local patch = appliedPatches[index]
         local current = readMotionPointer(activePointerArray, patch.slot)
-        if current == patch.replacement then
+        if motionPointersEqual(current, patch.replacement) then
             writeMotionPointer(activePointerArray, patch.slot, patch.original)
             current = readMotionPointer(activePointerArray, patch.slot)
         end
-        if current ~= patch.original then
+        if not motionPointersEqual(current, patch.original) then
             success = false
             failure = string.format(
                 "slot 0x%02X restore conflict: found 0x%08X",
@@ -681,7 +749,9 @@ local function cleanAndApplyRoutes(sora)
 
     for _, slot in ipairs({ SLOT_C8, SLOT_C9, SLOT_CA }) do
         local current = readMotionPointer(layout.pointerArray, slot)
-        if current == pointer65 and current ~= layout.expected[slot] then
+        if motionPointersEqual(current, pointer65)
+            and not motionPointersEqual(current, layout.expected[slot])
+        then
             writeMotionPointer(layout.pointerArray, slot, layout.expected[slot])
             cleaned = true
         end
@@ -690,7 +760,9 @@ local function cleanAndApplyRoutes(sora)
     -- CE is a permanent v11 route; only CD can be a stale temporary route.
     for _, slot in ipairs({ SLOT_CD }) do
         local current = readMotionPointer(layout.pointerArray, slot)
-        if current == pointer6F and current ~= layout.expected[slot] then
+        if motionPointersEqual(current, pointer6F)
+            and not motionPointersEqual(current, layout.expected[slot])
+        then
             writeMotionPointer(layout.pointerArray, slot, layout.expected[slot])
             cleaned = true
         end
@@ -699,8 +771,8 @@ local function cleanAndApplyRoutes(sora)
     for _, route in ipairs(PERMANENT_ROUTES) do
         local replacement = layout.expected[route.replacementSlot]
         local current = readMotionPointer(layout.pointerArray, route.slot)
-        if current ~= replacement then
-            if current ~= layout.expected[route.slot] then
+        if not motionPointersEqual(current, replacement) then
+            if not motionPointersEqual(current, layout.expected[route.slot]) then
                 return false, string.format(
                     "slot 0x%02X changed before permanent routing (0x%08X)",
                     route.slot,
@@ -708,7 +780,10 @@ local function cleanAndApplyRoutes(sora)
                 )
             end
             writeMotionPointer(layout.pointerArray, route.slot, replacement)
-            if readMotionPointer(layout.pointerArray, route.slot) ~= replacement then
+            if not motionPointersEqual(
+                readMotionPointer(layout.pointerArray, route.slot),
+                replacement
+            ) then
                 return false, string.format(
                     "slot 0x%02X permanent route failed readback",
                     route.slot
@@ -725,6 +800,10 @@ local function cleanAndApplyRoutes(sora)
     if cleaned then
         detail("Recovered and restored stale routes from a prior script reload.")
     end
+    if not routesReadyAnnounced then
+        routesReadyAnnounced = true
+        log("READY: v13 bank-safe motion routing is active.")
+    end
     return true, nil
 end
 
@@ -732,7 +811,7 @@ local function verifyPermanentRoutes(layout)
     for _, route in ipairs(PERMANENT_ROUTES) do
         local expected = layout.expected[route.replacementSlot]
         local current = readMotionPointer(layout.pointerArray, route.slot)
-        if current ~= expected then
+        if not motionPointersEqual(current, expected) then
             return false, string.format(
                 "permanent route 0x%02X changed to 0x%08X",
                 route.slot,
@@ -748,7 +827,7 @@ local function applyEntryPatches(entry, layout)
     for _, slot in ipairs(entry.patchSlots) do
         local current = readMotionPointer(layout.pointerArray, slot)
         local expected = layout.expected[slot]
-        if current ~= expected then
+        if not motionPointersEqual(current, expected) then
             return false, string.format(
                 "slot 0x%02X changed before routing (0x%08X)",
                 slot,
@@ -758,7 +837,7 @@ local function applyEntryPatches(entry, layout)
 
         writeMotionPointer(layout.pointerArray, slot, replacement)
         local readback = readMotionPointer(layout.pointerArray, slot)
-        if readback ~= replacement then
+        if not motionPointersEqual(readback, replacement) then
             return false, string.format(
                 "slot 0x%02X route failed readback (0x%08X)",
                 slot,
@@ -836,7 +915,7 @@ end
 local function verifyActivePatches()
     for _, patch in ipairs(appliedPatches) do
         local current = readMotionPointer(activePointerArray, patch.slot)
-        if current ~= patch.replacement then
+        if not motionPointersEqual(current, patch.replacement) then
             return false, string.format(
                 "slot 0x%02X route changed to 0x%08X",
                 patch.slot,
@@ -868,6 +947,7 @@ local function frameLogic()
         end
         previousSora = 0
         permanentPointerArray = 0
+        routesReadyAnnounced = false
         return
     end
 
@@ -880,6 +960,7 @@ local function frameLogic()
             return
         end
         permanentPointerArray = 0
+        routesReadyAnnounced = false
     end
     previousSora = sora
 
@@ -983,6 +1064,7 @@ function _OnInit()
     disabledReason = nil
     permanentPointerArray = 0
     lastRouteError = nil
+    routesReadyAnnounced = false
     clearSequence()
     clearDefenseState()
 
@@ -1006,7 +1088,9 @@ function _OnInit()
         previousSora = 0
     end
 
-    log("READY: v12 controller with verified full-animation defense protection.")
+    if not routesReadyAnnounced then
+        log("WAITING: v13 loaded, but main motion routing is not active yet.")
+    end
     log("Required asset is the unchanged v11 EFFECTS_DEFENSE_POC MSET.")
     log("Ground C8/C9: Raid throw, real second press Raid catch.")
     log("Sliding Dash: Judgement Raid, real second press Raid catch.")
