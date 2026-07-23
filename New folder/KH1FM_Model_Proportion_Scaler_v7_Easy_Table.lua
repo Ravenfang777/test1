@@ -73,8 +73,8 @@ local SETTINGS = {
             joint = 21,
             label = "Left Foot and Shoe",
             X = .8,
-            Y = .8,
-            Z = .7,
+            Y = .7,
+            Z = .5,
         },
         {
             enabled = true,
@@ -89,8 +89,8 @@ local SETTINGS = {
             joint = 47,
             label = "Right Foot and Shoe",
             X = .8,
-            Y = .8,
-            Z = .7,
+            Y = .7,
+            Z = .5,
         },
         {
             enabled = false,
