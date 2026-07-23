@@ -90,7 +90,7 @@ local SETTINGS = {
             label = "Right Foot and Shoe",
             X = .8,
             Y = .7,
-            Z = .5,
+            Z = .56,
         },
         {
             enabled = false,
