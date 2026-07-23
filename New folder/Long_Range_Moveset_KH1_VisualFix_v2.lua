@@ -1,21 +1,133 @@
 -- Kingdom Hearts Final Mix (Steam)
--- Sora moveset all-in-one controller v1.
+-- Sora moveset all-in-one controller v2 visual-fix revision.
 --
--- Combines the four validated controllers listed below without removing any
--- editable setting, option, lookup table, label, validation, or cleanup path.
--- Disable the four standalone source Lua files while using this build.
--- EDITABLE SETTINGS remain in their original labeled sections inside each module.
+-- Combines the validated controllers listed below. Every user-adjustable
+-- balance number is collected in the single table immediately below.
+-- Disable the five standalone source Lua files and both ZZ_ companion copies
+-- (damage v19 and defense-window v14) while using this build.
+--
+-- NUMBER GUIDE
+--   Damage/throw length: 1.00 = 100%, 1.50 = 150%, 0.50 = 50%.
+--   Animation speed:     100 = normal, 150 = 1.5x, 75 = 0.75x.
+--   Invulnerability:     start is inclusive; end is exclusive.
+--
+-- Change only numbers in this table, save the Lua, then fully restart KH1.
+-- The v16 ZANT_CLEAN_EXIT MSET is required. It retains v15's verified 1.50
+-- throw paths, and the Lua converts them to the requested length when Sora's
+-- bank loads.
+
+local ADJUSTMENTS = {
+    damage_multiplier = {
+        C8_STANDARD_RAID = 1.00,          -- ID 0xC8: ground attack 1 / standard Raid
+        C9_STANDARD_RAID = 1.00,          -- ID 0xC9: ground attack 2 / standard Raid
+        D0_JUDGEMENT_RAID = 3.00,         -- ID 0xD0: Sliding Dash / Judgement Raid
+        REPLACEMENT_RAGNAROK = 0.50,      -- IDs 0xCD/0xCE routed to Ragnarok F7
+    },
+
+    throw_length_multiplier = {
+        C8_STANDARD_RAID = 1.50,          -- ID 0xC8: 1.00 = donor's standard length
+        C9_STANDARD_RAID = 1.50,          -- ID 0xC9: 1.00 = donor's standard length
+        D0_JUDGEMENT_RAID = 1.50,         -- ID 0xD0: 1.00 = donor's standard length
+    },
+
+    invulnerability_frames = {
+        D4_GUARD_RIPPLE = {
+            start_frame = 40.0,           -- ID 0xD4: protection begins here
+            end_frame = 100.0,            -- ID 0xD4: replacement ends at frame 99
+        },
+        DC_DODGE_ZANTETSUKEN = {
+            start_frame = 60.0,           -- ID 0xDC: protection begins here
+            end_frame = 72.0,             -- ID 0xDC: protection stops here
+        },
+    },
+
+    sora_animation_speed_percent = {
+        -- Replacement visuals take priority over the reused native IDs.
+        replacement_visuals = {
+            C8_RAID_THROW = 100,           -- ID 0xC8: standard Raid throw
+            C9_RAID_THROW = 100,           -- ID 0xC9: standard Raid throw
+            CATCH_AFTER_C8 = 100,          -- Raid catch after ID 0xC8
+            CATCH_AFTER_C9 = 100,          -- Raid catch after ID 0xC9
+            CATCH_AFTER_SLIDING_DASH = 100,-- Raid catch after ID 0xD0
+            GENERIC_RAID_CATCH = 100,      -- ID 0xCB motion used without known origin
+            SLIDING_DASH_JUDGEMENT_RAID = 100, -- ID 0xD0
+            CC_AERIAL_SWEEP = 100,         -- ID 0xCC: air combo 1 replacement
+            CD_AERIAL_SWEEP = 100,         -- ID 0xCD: air combo 2 replacement
+            GUARD_RIPPLE_DRIVE = 150,      -- ID 0xD4 replacement visual
+            DODGE_ROLL_ZANTETSUKEN = 150,  -- ID 0xDC replacement visual
+        },
+
+        native_default = 100,              -- Any ID not listed below
+
+        -- Known native runtime matches. These affect Sora's animation clock
+        -- only; enemies, projectiles, and world simulation keep normal speed.
+        -- Native/replacement Ragnarok IDs 0xF0..0xF7 stay safety-locked at 100.
+        native_by_id = {
+            [0x00] = 100, -- Idle / base locomotion (recorded)
+            [0x01] = 100, -- Walk (recorded; visually routed to native Run)
+            [0x02] = 100, -- Run (recorded)
+            [0x04] = 100, -- Jump ascent (recorded)
+            [0x05] = 100, -- Jump apex / transition to falling (recorded)
+            [0x06] = 100, -- Falling (recorded)
+            [0x07] = 100, -- Landing recovery (recorded)
+            [0x0D] = 100, -- Hang on ledge, phase 1 (user-tested)
+            [0x0E] = 100, -- Hang on ledge, phase 2 (user-tested)
+            [0x0F] = 100, -- Pull-up flip (user-tested)
+            [0x3E] = 125, -- Use item (user-tested)
+            [0x48] = 100, -- Receive damage 1 (user-tested)
+            [0x49] = 100, -- Receive damage 2 (user-tested)
+            [0x4A] = 100, -- Receive damage from behind 1 (user-tested)
+            [0x4B] = 100, -- Receive damage from behind 2 (user-tested)
+            [0x4C] = 100, -- Damage-reaction family; direction unconfirmed
+            [0x4D] = 100, -- Damage-reaction family; direction unconfirmed
+            [0x4E] = 100, -- Airborne damage / knockback transition (provisional)
+            [0x4F] = 100, -- Damage/recovery family; exact role unconfirmed
+            [0x6E] = 75,  -- Parry reaction 1 (user-tested)
+            [0x6F] = 75,  -- Parry reaction 2 (user-tested)
+            [0xC8] = 100, -- Ground Combo 1 / Sonic Blade 1
+            [0xC9] = 100, -- Ground Combo 2 / Sonic Blade 2
+            [0xCA] = 100, -- Sonic Blade 3
+            [0xCB] = 100, -- Ground Combo Finisher
+            [0xCC] = 100, -- Air Combo 1
+            [0xCD] = 100, -- Air Combo 2
+            [0xCE] = 100, -- Air Combo Finisher
+            [0xCF] = 100, -- Slapshot
+            [0xD0] = 100, -- Sliding Dash
+            [0xD1] = 100, -- Hurricane Blast
+            [0xD2] = 100, -- Ars Arcanum phase 1 / Blitz
+            [0xD3] = 100, -- Ars Arcanum phase 2 / Vortex (recording-confirmed)
+            [0xD4] = 100, -- Ars Arcanum phase 3 / Guard
+            [0xD5] = 100, -- Ars Arcanum phase 4
+            [0xD6] = 100, -- Ars Arcanum phase 5 / Aerial Sweep
+            [0xD7] = 100, -- Ars Arcanum phase 6 / Ripple Drive
+            [0xD8] = 100, -- Ars Arcanum phase 7 / Stun Impact
+            [0xD9] = 100, -- Ars Arcanum phase 8 / Gravity Break
+            [0xDA] = 100, -- Ars Arcanum phase 9 / Zantetsuken
+            [0xDB] = 100, -- Ars Arcanum phase 10
+            [0xDC] = 100, -- Ars Arcanum phase 11 / Dodge Roll (recording-confirmed)
+            [0xDD] = 100, -- Ars Arcanum phase 12
+            [0xDE] = 100, -- Ars Arcanum phase 13
+            [0xDF] = 100, -- Ars Arcanum phase 14
+            [0xE6] = 150, -- Strike Raid opening phase (sequence confirmed)
+            [0xE7] = 100, -- Strike Raid standard throw (motion-dump confirmed)
+            [0xE8] = 100, -- Judgement Raid / final throw (motion-dump confirmed)
+            [0xE9] = 100, -- Strike Raid throw-to-catch transition (inference)
+            [0xEE] = 100, -- Strike Raid catch / recovery (motion-dump confirmed)
+        },
+    },
+}
 
 local function buildComboVisuals()
     -- ====================================================================
-    -- BEGIN EMBEDDED CONTROLLER: SoraComboVisualsV13
+    -- BEGIN EMBEDDED CONTROLLER: SoraComboVisualsV13_VisualFix2
     -- ====================================================================
 -- Kingdom Hearts Final Mix (Steam)
--- Combined Sora combo/visual controller v13 with bank-safe motion routing.
+-- Combined Sora combo/visual controller v13 visual-fix revision with
+-- bank-safe motion routing.
 --
--- REQUIRED MSET (unchanged from v11; byte-for-byte identical)
---   xa_ex_0010_SoraComboVisuals_v11_EFFECTS_DEFENSE_POC.mset
---   SHA-256: 3dfac78e664d1eff4c04ee530974b5e6cc5760b5eb12b3bd6df740d3319f6047
+-- REQUIRED MSET (v16; retains the validated v15/v11 fixed layout)
+--   xa_ex_0010_SoraComboVisuals_v16_ZANT_CLEAN_EXIT.mset
+--   SHA-256: 3fc1ecc0ca6ecba8cb80987af382befa7d5aba5729990347b6926e94d7a82378
 --
 -- LAYOUT
 --   C8 ground attack 1: Raid throw -> real second press -> Raid catch
@@ -25,11 +137,12 @@ local function buildComboVisuals()
 --   CD air attack 2: Aerial Sweep -> real second press -> Ragnarok F7
 --   D4 Guard: Ripple visual/effect controls plus delayed invulnerability
 --   DC Dodge Roll: Zantetsuken visual plus delayed invulnerability
+--   01 Walk: always uses the intact native Run motion from slot 0x07
 --
 -- No input is generated. This script never writes animation ID, resolved
 -- motion index, animation time, damage, hitbox, movement, HP, or speed.
--- It permanently routes four visual-only slots while the main Sora MSET is
--- active, and temporarily routes combo continuations after a genuine attack.
+-- It permanently routes five visual slots while the main Sora MSET is active,
+-- and temporarily routes combo continuations after a genuine attack.
 --
 -- VERIFIED DEFENSE NOTE
 --   Controlled hit tests proved that Sora runtime byte +0x00 bit 0x80 is the
@@ -43,6 +156,8 @@ local function buildComboVisuals()
 --   and 0x74 as motion containers. Slot 0x6F is normally D5; slots 0x71 and
 --   0x74 are normally D7 and DA. This POC therefore does not preserve those
 --   three source attacks as independent, fully functional attacks.
+--   The visual-fix revision routes Walk slot 0x04 to intact Run slot 0x07.
+--   This changes only the displayed cycle; walk movement speed is untouched.
 
 -- ========================================================================
 -- EDITABLE SETTINGS
@@ -53,12 +168,20 @@ local LOG_DETAILS = true
 local ENABLE_FULL_DEFENSE_INVULNERABILITY = true
 
 -- Replacement-only vulnerable startup windows (animation frames).
--- The protection bit is OFF before the selected frame and ON afterward.
+-- The protection bit is forced ON only inside each configured [start, end)
+-- interval and forced OFF before/after it.
 -- Native Guard, Dodge Roll, Ripple Drive, and Zantetsuken are unchanged.
-local GUARD_INVULNERABILITY_START_FRAME = 30.0
-local DODGE_INVULNERABILITY_START_FRAME = 30.0
+local GUARD_INVULNERABILITY_START_FRAME =
+    ADJUSTMENTS.invulnerability_frames.D4_GUARD_RIPPLE.start_frame
+local GUARD_INVULNERABILITY_END_FRAME =
+    ADJUSTMENTS.invulnerability_frames.D4_GUARD_RIPPLE.end_frame
+local DODGE_INVULNERABILITY_START_FRAME =
+    ADJUSTMENTS.invulnerability_frames.DC_DODGE_ZANTETSUKEN.start_frame
+local DODGE_INVULNERABILITY_END_FRAME =
+    ADJUSTMENTS.invulnerability_frames.DC_DODGE_ZANTETSUKEN.end_frame
 
--- Replaced Guard ends at frame 99 and replaced Dodge Roll at frame 89.
+-- Replaced Guard ends at frame 99. The v16 replacement Dodge Roll exits at
+-- frame 72, immediately after its protected interval, before the bad tail.
 local MAX_DEFENSE_PROTECTION_FRAME = 110
 
 -- ========================================================================
@@ -101,11 +224,15 @@ local SLOT_RIPPLE_GUARD_CONTAINER = 0x0071
 local SLOT_ZANT_ROLL_CONTAINER = 0x0074
 local SLOT_DC = 0x0075
 local SLOT_CC_CONTAINER = 0x0003
+local SLOT_WALK = 0x0004
+local SLOT_RUN = 0x0007
 
 -- Physical-record offsets relative to the canonical, never-patched slot 0x65.
 -- These are the original archive offsets: v11 does not resize or move records.
 local SLOT_DELTA_FROM_65 = {
     [SLOT_CC_CONTAINER] = -0x1BFAB0,
+    [SLOT_WALK] = -0x1BA1B0,
+    [SLOT_RUN] = -0x1AAA80,
     [SLOT_C8] = -0x13FA0,
     [SLOT_C9] = -0xE860,
     [SLOT_CA] = -0x7E90,
@@ -123,6 +250,8 @@ local SLOT_DELTA_FROM_65 = {
 
 local EXPECTED_FRAMES = {
     [SLOT_CC_CONTAINER] = 56,
+    [SLOT_WALK] = 48,
+    [SLOT_RUN] = 36,
     [SLOT_C8] = 42,
     [SLOT_C9] = 42,
     [SLOT_CB] = 64,
@@ -138,6 +267,7 @@ local EXPECTED_FRAMES = {
 }
 
 local PERMANENT_ROUTES = {
+    { slot = SLOT_WALK, replacementSlot = SLOT_RUN, name = "Walk uses native Run" },
     { slot = SLOT_CC, replacementSlot = SLOT_CC_CONTAINER, name = "CC Aerial Sweep" },
     { slot = SLOT_CE, replacementSlot = SLOT_RAGNAROK_CONTAINER, name = "CE Ragnarok F7" },
     { slot = SLOT_D4, replacementSlot = SLOT_RIPPLE_GUARD_CONTAINER, name = "D4 Guard/Ripple" },
@@ -237,11 +367,11 @@ local defenseSora = 0
 local defenseAnimation = 0
 local defenseName = ""
 local defenseLastFrame = -1
-local defenseOwnedBit = false
+local defenseManagesBit = false
 local defenseTimedOut = false
 
 local function log(message)
-    ConsolePrint("[SoraComboVisualsV13] " .. message)
+    ConsolePrint("[SoraComboVisualsV13_VisualFix2] " .. message)
 end
 
 local function detail(message)
@@ -282,7 +412,7 @@ local function clearDefenseState()
     defenseAnimation = 0
     defenseName = ""
     defenseLastFrame = -1
-    defenseOwnedBit = false
+    defenseManagesBit = false
     defenseTimedOut = false
 end
 
@@ -304,39 +434,47 @@ local function beginDefenseProtection(sora, animation, name, animationFrame)
     defenseLastFrame = animationFrame
     defenseTimedOut = false
 
-    local wrote, before, after = addPostHitProtectionBit(sora)
-    defenseOwnedBit = wrote
+    -- Replacement D4/DC owns the state of bit 0x80 for its configured
+    -- interval, including clearing a native frame-0 bit during startup.
+    local inWindow = animationFrame >= GUARD_INVULNERABILITY_START_FRAME
+        and animationFrame < GUARD_INVULNERABILITY_END_FRAME
+    if animation == ID_DC then
+        inWindow = animationFrame >= DODGE_INVULNERABILITY_START_FRAME
+            and animationFrame < DODGE_INVULNERABILITY_END_FRAME
+    end
+    local changed, before, after
+    if inWindow then
+        changed, before, after = addPostHitProtectionBit(sora)
+    else
+        changed, before, after = removePostHitProtectionBit(sora)
+    end
+    defenseManagesBit = true
     detail(string.format(
-        "DEFENSE START: %s frame=%.1f flags=0x%02X->0x%02X owned=%s",
+        "DEFENSE START: %s frame=%.1f flags=0x%02X->0x%02X managed=%s changed=%s",
         name,
         animationFrame,
         before,
         after,
-        tostring(defenseOwnedBit)
+        tostring(defenseManagesBit),
+        tostring(changed)
     ))
 end
 
-local function defenseInvulnerabilityStartsAt(animation)
-    if animation == ID_D4 then
-        return GUARD_INVULNERABILITY_START_FRAME
-    end
-    return DODGE_INVULNERABILITY_START_FRAME
-end
-
 local function applyDefenseWindow(sora, animation, animationFrame)
-    local startFrame = defenseInvulnerabilityStartsAt(animation)
-    if animationFrame < startFrame then
-        -- This module owns the defense bit once the replacement starts, so it
-        -- may safely remove its own full-duration protection during startup.
-        if defenseOwnedBit then
-            removePostHitProtectionBit(sora)
-        end
-        return
+    local inWindow = animationFrame >= GUARD_INVULNERABILITY_START_FRAME
+        and animationFrame < GUARD_INVULNERABILITY_END_FRAME
+    if animation == ID_DC then
+        inWindow = animationFrame >= DODGE_INVULNERABILITY_START_FRAME
+            and animationFrame < DODGE_INVULNERABILITY_END_FRAME
     end
 
-    local wrote = addPostHitProtectionBit(sora)
-    if wrote then
-        defenseOwnedBit = true
+    if inWindow then
+        addPostHitProtectionBit(sora)
+    else
+        -- This is intentionally unconditional with respect to the bit's
+        -- origin. The game can begin replacement D4/DC with 0x80 already set;
+        -- leaving it intact made the configured startup falsely invulnerable.
+        removePostHitProtectionBit(sora)
     end
 end
 
@@ -348,16 +486,16 @@ local function finishDefenseProtection(sora, nextAnimation, reason)
     local after = 0
 
     -- Damage IDs 0x48..0x4D establish the game's own post-hit protection.
-    -- Never clear 0x80 after such a transition. For ordinary locomotion,
-    -- clear only when v13 originally added the bit. Other actions are left to
-    -- their own runtime controller; the game normally changes their flags.
+    -- Never clear 0x80 after such a transition. Clear it only when returning
+    -- to ordinary locomotion. Other actions are
+    -- left to their own runtime controller; the game normally changes flags.
     local receivedDamage = nextAnimation >= 0x48 and nextAnimation <= 0x4D
     local ordinaryExit = nextAnimation == 0x00
         or nextAnimation == 0x01
         or nextAnimation == 0x02
 
     if sora ~= nil and sora ~= 0 and sora == defenseSora then
-        if defenseOwnedBit and ordinaryExit and not receivedDamage then
+        if defenseManagesBit and ordinaryExit and not receivedDamage then
             removed, before, after = removePostHitProtectionBit(sora)
         else
             before = ReadByte(sora + OBJECT_FLAGS_OFFSET, true)
@@ -406,7 +544,6 @@ local function updateDefenseProtection(sora, animation, slot, animationFrame)
     if not defenseActive then
         if target and animationFrame <= MAX_DEFENSE_PROTECTION_FRAME then
             beginDefenseProtection(sora, animation, name, animationFrame)
-            applyDefenseWindow(sora, animation, animationFrame)
         end
         return
     end
@@ -419,12 +556,12 @@ local function updateDefenseProtection(sora, animation, slot, animationFrame)
     defenseLastFrame = animationFrame
     if animationFrame > MAX_DEFENSE_PROTECTION_FRAME then
         if not defenseTimedOut then
-            if defenseOwnedBit then
+            if defenseManagesBit then
                 removePostHitProtectionBit(sora)
             end
             defenseTimedOut = true
             log(string.format(
-                "DEFENSE FAILSAFE: %s exceeded frame %d; owned bit removed.",
+                "DEFENSE FAILSAFE: %s exceeded frame %d; managed bit removed.",
                 defenseName,
                 MAX_DEFENSE_PROTECTION_FRAME
             ))
@@ -656,13 +793,14 @@ local function validateV11Signature(expected)
         end
     end
 
-    -- The first Dodge control frame is scaled from 30/38 to 78.947/100.
-    local scaledRollFrame = ReadFloat(zantRoll + 0x8510 + 0x34, true)
-    if scaledRollFrame == nil
-        or scaledRollFrame < 78.0
-        or scaledRollFrame > 80.0
+    -- V16 moves the first Dodge exit/control event from 78.947 to 72.0.
+    -- The earlier exit removes the brief post-destination Zantetsuken snap.
+    local cleanExitFrame = ReadFloat(zantRoll + 0x8510 + 0x34, true)
+    if cleanExitFrame == nil
+        or cleanExitFrame < 71.9
+        or cleanExitFrame > 72.1
     then
-        return false, "slot 0x74 does not contain the scaled v11 Dodge tail"
+        return false, "slot 0x74 does not contain the v16 clean Dodge exit"
     end
     return true, nil
 end
@@ -1114,14 +1252,22 @@ local function moduleInit()
         return
     end
 
-    if GUARD_INVULNERABILITY_START_FRAME < 0
+    if type(GUARD_INVULNERABILITY_START_FRAME) ~= "number"
+        or type(GUARD_INVULNERABILITY_END_FRAME) ~= "number"
+        or type(DODGE_INVULNERABILITY_START_FRAME) ~= "number"
+        or type(DODGE_INVULNERABILITY_END_FRAME) ~= "number"
+        or GUARD_INVULNERABILITY_START_FRAME < 0
+        or GUARD_INVULNERABILITY_END_FRAME <= GUARD_INVULNERABILITY_START_FRAME
         or DODGE_INVULNERABILITY_START_FRAME < 0
+        or DODGE_INVULNERABILITY_END_FRAME <= DODGE_INVULNERABILITY_START_FRAME
         or GUARD_INVULNERABILITY_START_FRAME > MAX_DEFENSE_PROTECTION_FRAME
+        or GUARD_INVULNERABILITY_END_FRAME > MAX_DEFENSE_PROTECTION_FRAME
         or DODGE_INVULNERABILITY_START_FRAME > MAX_DEFENSE_PROTECTION_FRAME
+        or DODGE_INVULNERABILITY_END_FRAME > MAX_DEFENSE_PROTECTION_FRAME
     then
         enabled = false
-        disabledReason = "invalid defense startup window"
-        log("DISABLED: defense invulnerability start frames must be between 0 and MAX_DEFENSE_PROTECTION_FRAME.")
+        disabledReason = "invalid defense window"
+        log("DISABLED: defense invulnerability windows are outside the allowed frame range.")
         return
     end
 
@@ -1142,15 +1288,19 @@ local function moduleInit()
     if not routesReadyAnnounced then
         log("WAITING: v13 loaded, but main motion routing is not active yet.")
     end
-    log("Required asset is the unchanged v11 EFFECTS_DEFENSE_POC MSET.")
+    log("Required asset is the v16 ZANT_CLEAN_EXIT MSET with the validated v15/v11 layout.")
+    log("Walk slot 0x0004 is visually routed to native Run slot 0x0007; movement speed is unchanged.")
     log("Ground C8/C9: Raid throw, real second press Raid catch.")
     log("Sliding Dash: Judgement Raid, real second press Raid catch.")
     log("Air CC/CD: Aerial Sweep, real second press routes through CE to Ragnarok F7.")
     log("Guard keeps Ripple effect/control events without Ripple's offensive type-4 groups.")
+    log("Dodge/Zantetsuken exits cleanly at frame 72 before the bad visual tail.")
     log(string.format(
-        "Guard/Ripple is vulnerable before frame %.1f; Dodge/Zantetsuken before frame %.1f.",
+        "Guard/Ripple invulnerability=[%.1f, %.1f); Dodge/Zantetsuken invulnerability=[%.1f, %.1f).",
         GUARD_INVULNERABILITY_START_FRAME,
-        DODGE_INVULNERABILITY_START_FRAME
+        GUARD_INVULNERABILITY_END_FRAME,
+        DODGE_INVULNERABILITY_START_FRAME,
+        DODGE_INVULNERABILITY_END_FRAME
     ))
     log("Archive size/directory are unchanged; no remastered folder is used.")
     log("No automatic input or animation-ID/index/time writes are used.")
@@ -1166,7 +1316,7 @@ local function moduleFrame()
         pcall(resetSequence, "runtime error")
         local sora = ReadLong(SORA_POINTER)
         if defenseActive
-            and defenseOwnedBit
+            and defenseManagesBit
             and sora ~= nil
             and sora ~= 0
             and sora == defenseSora
@@ -1180,7 +1330,7 @@ local function moduleFrame()
     end
 end
 
-    return { name = "SoraComboVisualsV13", init = moduleInit, frame = moduleFrame, enabled = true }
+    return { name = "SoraComboVisualsV13_VisualFix2", init = moduleInit, frame = moduleFrame, enabled = true }
 end
 
 local function buildAutoPrime()
@@ -4146,6 +4296,370 @@ end
     return { name = "RagnarokProjectileV8_9_5", init = moduleInit, frame = moduleFrame, enabled = true }
 end
 
+local function buildRaidThrowLength()
+    -- ====================================================================
+    -- RUNTIME THROW-LENGTH CONTROLLER
+    -- ====================================================================
+    -- The required v16 MSET retains v15's C8, C9, and D0 paths at 1.50x
+    -- donor travel.
+    -- This module validates that exact baseline, recovers the donor-space
+    -- curve values, and writes the requested per-attack length. Animation
+    -- frames, collision triggers, Sora movement, and genuine Strike Raid are
+    -- untouched. A fresh process is required after changing these settings.
+
+    local ENABLE_CONTROLLER = true
+    local V15_BASELINE_LENGTH = 1.50
+    local MIN_LENGTH_MULTIPLIER = 0.10
+    local MAX_LENGTH_MULTIPLIER = 5.00
+
+    local SORA_POINTER = 0x2537E48
+    local POINTER_BANK_TABLE = 0x2EE3980
+    local ACTIVE_POINTER_ARRAY_OFFSET = 0x1D4
+
+    local TARGETS = {
+        {
+            slot = 0x0062,
+            name = "C8 standard Raid throw",
+            frames = 42,
+            fcurve_count = 184,
+            desired = ADJUSTMENTS.throw_length_multiplier.C8_STANDARD_RAID,
+            curves = {
+                { channel = 7, count = 9, start = 246, anchor = -1.5233,
+                    probe_index = 8, original_probe = 617.291870 },
+                { channel = 8, count = 8, start = 255, anchor = -0.1572,
+                    probe_index = 5, original_probe = 565.367554 },
+                { channel = 9, count = 8, start = 263, anchor = 3.1643,
+                    probe_index = 7, original_probe = 550.108093 },
+            },
+        },
+        {
+            slot = 0x0063,
+            name = "C9 standard Raid throw",
+            frames = 42,
+            fcurve_count = 184,
+            desired = ADJUSTMENTS.throw_length_multiplier.C9_STANDARD_RAID,
+            curves = {
+                { channel = 7, count = 9, start = 246, anchor = -1.5233,
+                    probe_index = 8, original_probe = 617.291870 },
+                { channel = 8, count = 8, start = 255, anchor = -0.1572,
+                    probe_index = 5, original_probe = 565.367554 },
+                { channel = 9, count = 8, start = 263, anchor = 3.1643,
+                    probe_index = 7, original_probe = 550.108093 },
+            },
+        },
+        {
+            slot = 0x006A,
+            name = "D0 Judgement Raid throw",
+            frames = 76,
+            fcurve_count = 187,
+            desired = ADJUSTMENTS.throw_length_multiplier.D0_JUDGEMENT_RAID,
+            curves = {
+                { channel = 7, count = 11, start = 235, anchor = -1.5233,
+                    probe_index = 9, original_probe = 760.451843 },
+                { channel = 8, count = 9, start = 246, anchor = -0.1572,
+                    probe_index = 4, original_probe = 503.442596 },
+                { channel = 9, count = 10, start = 255, anchor = 3.1643,
+                    probe_index = 9, original_probe = 641.711182 },
+            },
+        },
+    }
+
+    local enabled = false
+    local verifiedPointerArrays = {}
+    local patchedRecords = {}
+    local lastWaitingReason = nil
+
+    local function log(message)
+        ConsolePrint("[RaidThrowLength] " .. message)
+    end
+
+    local function unsigned32(value)
+        if value == nil then return 0 end
+        if value < 0 then return value + 4294967296 end
+        return value
+    end
+
+    local function safeReadByte(address, absolute)
+        local ok, value = pcall(ReadByte, address, absolute)
+        if not ok then return nil end
+        return value
+    end
+
+    local function safeReadShort(address, absolute)
+        local ok, value = pcall(ReadShort, address, absolute)
+        if not ok or value == nil then return nil end
+        if value < 0 then value = value + 65536 end
+        return value
+    end
+
+    local function safeReadInt(address, absolute)
+        local ok, value = pcall(ReadInt, address, absolute)
+        if not ok or value == nil then return nil end
+        return unsigned32(value)
+    end
+
+    local function safeReadLong(address, absolute)
+        local ok, value = pcall(ReadLong, address, absolute)
+        if not ok then return nil end
+        return value
+    end
+
+    local function safeReadFloat(address, absolute)
+        local ok, value = pcall(ReadFloat, address, absolute)
+        if not ok then return nil end
+        return value
+    end
+
+    local function writeFloatVerified(address, value)
+        local ok, reason = pcall(WriteFloat, address, value, true)
+        if not ok then return false, tostring(reason) end
+        local readback = safeReadFloat(address, true)
+        if readback == nil or math.abs(readback - value) > 0.02 then
+            return false, "float write did not verify"
+        end
+        return true, nil
+    end
+
+    local function resolveCompressedPointer(encoded)
+        local value = unsigned32(encoded)
+        if value == 0 then return 0 end
+        if value < 0x80000000 then return value end
+        local payload = value - 0x80000000
+        local bankIndex = math.floor(payload / 0x2000000)
+        local bankOffset = payload % 0x2000000
+        local bankBase = safeReadLong(POINTER_BANK_TABLE + bankIndex * 8)
+        if bankBase == nil or bankBase == 0 then return 0 end
+        return bankBase + bankOffset
+    end
+
+    local function closeEnough(actual, expected, tolerance)
+        return actual ~= nil and math.abs(actual - expected) <= tolerance
+    end
+
+    local function findCurve(fcurve, target, joint, expected)
+        for index = 0, target.fcurve_count - 1 do
+            local row = fcurve + index * 6
+            local foundJoint = safeReadShort(row, true)
+            local packedChannel = safeReadByte(row + 2, true)
+            local count = safeReadByte(row + 3, true)
+            local start = safeReadShort(row + 4, true)
+            if foundJoint == joint and packedChannel ~= nil
+                and packedChannel % 16 == expected.channel
+            then
+                if count ~= expected.count or start ~= expected.start then
+                    return false
+                end
+                return true
+            end
+        end
+        return false
+    end
+
+    local function prepareTarget(pointerArray, target)
+        local encodedRecord = safeReadInt(pointerArray + target.slot * 4, true)
+        local record = resolveCompressedPointer(encodedRecord or 0)
+        if record == 0 then
+            return nil, string.format("%s motion is unavailable", target.name)
+        end
+        if patchedRecords[record] then
+            return { record = record, writes = {} }, nil
+        end
+
+        local frames = safeReadInt(record + 4, true)
+        local fcurveCount = safeReadInt(record + 0x18, true)
+        local fcurve = resolveCompressedPointer(
+            safeReadInt(record + 0x1C, true) or 0
+        )
+        local keyTable = resolveCompressedPointer(
+            safeReadInt(record + 0x28, true) or 0
+        )
+        if frames ~= target.frames or fcurveCount ~= target.fcurve_count
+            or fcurve == 0 or keyTable == 0
+        then
+            return nil, string.format(
+                "%s is not the verified v15/v16 Raid layout",
+                target.name
+            )
+        end
+
+        local writes = {}
+        for _, curve in ipairs(target.curves) do
+            if not findCurve(fcurve, target, 102, curve)
+                or not findCurve(fcurve, target, 280, curve)
+            then
+                return nil, string.format(
+                    "%s channel %d signature mismatch",
+                    target.name,
+                    curve.channel
+                )
+            end
+
+            local firstKey = keyTable + curve.start * 16
+            local probeKey = keyTable + (curve.start + curve.probe_index) * 16
+            local loadedAnchor = safeReadFloat(firstKey + 4, true)
+            local loadedProbe = safeReadFloat(probeKey + 4, true)
+            local expectedProbe = curve.anchor
+                + (curve.original_probe - curve.anchor) * V15_BASELINE_LENGTH
+            if not closeEnough(loadedAnchor, curve.anchor, 0.002)
+                or not closeEnough(loadedProbe, expectedProbe, 0.05)
+            then
+                return nil, string.format(
+                    "%s is not an untouched v15/v16 1.50 path; fully restart KH1",
+                    target.name
+                )
+            end
+
+            -- Leave the verified v15/v16 bytes completely untouched at the
+            -- default 1.50 setting. Other values are derived from that
+            -- baseline once, before any write occurs.
+            if math.abs(target.desired - V15_BASELINE_LENGTH) > 0.0001 then
+                for keyIndex = 0, curve.count - 1 do
+                    local key = keyTable + (curve.start + keyIndex) * 16
+                    local loadedValue = safeReadFloat(key + 4, true)
+                    local loadedTangentIn = safeReadFloat(key + 8, true)
+                    local loadedTangentOut = safeReadFloat(key + 12, true)
+                    if loadedValue == nil or loadedTangentIn == nil
+                        or loadedTangentOut == nil
+                    then
+                        return nil, string.format("%s key data is unreadable", target.name)
+                    end
+
+                    local donorValue = curve.anchor
+                        + (loadedValue - curve.anchor) / V15_BASELINE_LENGTH
+                    local donorTangentIn = loadedTangentIn / V15_BASELINE_LENGTH
+                    local donorTangentOut = loadedTangentOut / V15_BASELINE_LENGTH
+                    writes[#writes + 1] = {
+                        address = key + 4,
+                        old = loadedValue,
+                        value = curve.anchor
+                            + (donorValue - curve.anchor) * target.desired,
+                    }
+                    writes[#writes + 1] = {
+                        address = key + 8,
+                        old = loadedTangentIn,
+                        value = donorTangentIn * target.desired,
+                    }
+                    writes[#writes + 1] = {
+                        address = key + 12,
+                        old = loadedTangentOut,
+                        value = donorTangentOut * target.desired,
+                    }
+                end
+            end
+        end
+        return { record = record, writes = writes }, nil
+    end
+
+    local function applyPointerArray(pointerArray)
+        local prepared = {}
+        local allWrites = {}
+        for _, target in ipairs(TARGETS) do
+            local item, reason = prepareTarget(pointerArray, target)
+            if item == nil then return false, reason end
+            prepared[#prepared + 1] = item
+            for _, write in ipairs(item.writes) do
+                allWrites[#allWrites + 1] = write
+            end
+        end
+
+        for index, write in ipairs(allWrites) do
+            local ok, reason = writeFloatVerified(write.address, write.value)
+            if not ok then
+                for rollback = 1, index do
+                    pcall(
+                        WriteFloat,
+                        allWrites[rollback].address,
+                        allWrites[rollback].old,
+                        true
+                    )
+                end
+                return false, string.format(
+                    "write %d failed and prior writes were rolled back: %s",
+                    index,
+                    reason
+                )
+            end
+        end
+
+        for _, item in ipairs(prepared) do
+            patchedRecords[item.record] = true
+        end
+        verifiedPointerArrays[pointerArray] = true
+        return true, nil
+    end
+
+    local function validateSettings()
+        for _, target in ipairs(TARGETS) do
+            if type(target.desired) ~= "number"
+                or target.desired < MIN_LENGTH_MULTIPLIER
+                or target.desired > MAX_LENGTH_MULTIPLIER
+            then
+                return false, string.format(
+                    "%s length must be between %.2f and %.2f",
+                    target.name,
+                    MIN_LENGTH_MULTIPLIER,
+                    MAX_LENGTH_MULTIPLIER
+                )
+            end
+        end
+        return true, nil
+    end
+
+    local function moduleInit()
+        enabled = false
+        verifiedPointerArrays = {}
+        patchedRecords = {}
+        lastWaitingReason = nil
+        if not ENABLE_CONTROLLER then
+            log("DISABLED by setting.")
+            return
+        end
+        local valid, reason = validateSettings()
+        if not valid then
+            log("DISABLED: " .. reason .. ".")
+            return
+        end
+        enabled = true
+        log(string.format(
+            "WAITING: requested lengths C8=%.2f C9=%.2f D0=%.2f; loading verified v15/v16 paths.",
+            TARGETS[1].desired,
+            TARGETS[2].desired,
+            TARGETS[3].desired
+        ))
+    end
+
+    local function moduleFrame()
+        if not enabled then return end
+        local sora = safeReadLong(SORA_POINTER)
+        if sora == nil or sora == 0 then return end
+        local pointerArray = resolveCompressedPointer(
+            safeReadInt(sora + ACTIVE_POINTER_ARRAY_OFFSET, true) or 0
+        )
+        if pointerArray == 0 or verifiedPointerArrays[pointerArray] then return end
+
+        local ok, reason = applyPointerArray(pointerArray)
+        if ok then
+            lastWaitingReason = nil
+            log(string.format(
+                "READY: throw lengths applied C8=%.2f C9=%.2f D0=%.2f; timing/triggers unchanged.",
+                TARGETS[1].desired,
+                TARGETS[2].desired,
+                TARGETS[3].desired
+            ))
+        elseif reason ~= lastWaitingReason then
+            lastWaitingReason = reason
+            log("WAITING: " .. reason .. ".")
+        end
+    end
+
+    return {
+        name = "RaidThrowLength",
+        init = moduleInit,
+        frame = moduleFrame,
+        enabled = true,
+    }
+end
+
 local function buildMoveSpeed()
     -- ====================================================================
     -- BEGIN EMBEDDED CONTROLLER: SoraMoveSpeedV3
@@ -4168,8 +4682,7 @@ local function buildMoveSpeed()
 --   this file. Run only one animation-time speed controller.
 --
 -- EDITING
---   Change one number in MODDED_V13_SPEED_PERCENT for the current replacement
---   moves. Change one number in ID_SPEED_PERCENT for other native animations.
+--   Change animation-speed numbers only in the ADJUSTMENTS table at the top.
 --   100 = normal, 150 = 1.5x, 200 = 2x, 75 = 0.75x.
 --
 -- IDENTIFICATION EVIDENCE
@@ -4180,7 +4693,7 @@ local function buildMoveSpeed()
 --   deliberately left unidentified rather than guessed.
 
 -- ========================================================================
--- EDITABLE SETTINGS: CURRENT V13 REPLACEMENT VISUALS
+-- SETTINGS ALIASES: VALUES LIVE IN THE TOP ADJUSTMENTS TABLE
 -- ========================================================================
 
 local ENABLE_CONTROLLER = true
@@ -4188,297 +4701,15 @@ local LOG_ANIMATION_CHANGES = false
 local MIN_SPEED_PERCENT = 10
 local MAX_SPEED_PERCENT = 400
 
-local MODDED_V13_SPEED_PERCENT = {
-    C8_RAID_THROW = 100,
-    C9_RAID_THROW = 100,
-
-    CATCH_AFTER_C8 = 100,
-    CATCH_AFTER_C9 = 100,
-    CATCH_AFTER_SLIDING_DASH = 100,
-    GENERIC_RAID_CATCH = 100,
-
-    SLIDING_DASH_JUDGEMENT_RAID = 100,
-
-    CC_AERIAL_SWEEP = 100,
-    CD_AERIAL_SWEEP = 100,
-
-    GUARD_RIPPLE_DRIVE = 150,
-    DODGE_ROLL_ZANTETSUKEN = 150,
-
-    -- There is intentionally no Ragnarok setting here. Both genuine and
-    -- replacement Ragnarok are hard-protected at 100%.
-}
-
--- ========================================================================
--- EDITABLE SETTINGS: NATIVE RUNTIME IDS
--- ========================================================================
--- Context-specific v13 settings above take priority when their replacement
--- visual is actually selected. These values cover native/unmodified contexts.
--- F0..F7 are shown for completeness, but the controller ignores their values.
-
-local ID_SPEED_PERCENT = {
-    [0x00] = 100, -- Idle / base locomotion (recorded)
-    [0x01] = 100, -- Locomotion and action blend transition (recorded; shared)
-    [0x02] = 100, -- Walk / run / common locomotion state (recorded; shared)
-    [0x03] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x04] = 100, -- Jump ascent (recorded)
-    [0x05] = 100, -- Jump apex / transition to falling (recorded)
-    [0x06] = 100, -- Falling (recorded)
-    [0x07] = 100, -- Landing recovery (recorded)
-    [0x08] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x09] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x0A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x0B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x0C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x0D] = 100, -- Hang on ledge, phase 1 (user-tested)
-    [0x0E] = 100, -- Hang on ledge, phase 2 (user-tested)
-    [0x0F] = 100, -- Pull-up flip (user-tested)
-    [0x10] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x11] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x12] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x13] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x14] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x15] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x16] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x17] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x18] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x19] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x1A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x1B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x1C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x1D] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x1E] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x1F] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x20] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x21] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x22] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x23] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x24] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x25] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x26] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x27] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x28] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x29] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x2A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x2B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x2C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x2D] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x2E] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x2F] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x30] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x31] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x32] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x33] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x34] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x35] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x36] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x37] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x38] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x39] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x3A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x3B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x3C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x3D] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x3E] = 125, -- Use item (user-tested)
-    [0x3F] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x40] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x41] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x42] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x43] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x44] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x45] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x46] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x47] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x48] = 100, -- Receive damage 1 (user-tested)
-    [0x49] = 100, -- Receive damage 2 (user-tested)
-    [0x4A] = 100, -- Receive damage from behind 1 (user-tested)
-    [0x4B] = 100, -- Receive damage from behind 2 (user-tested)
-    [0x4C] = 100, -- Damage-reaction family; exact direction unconfirmed
-    [0x4D] = 100, -- Damage-reaction family; exact direction unconfirmed
-    [0x4E] = 100, -- Airborne damage / knockback transition (observed; provisional name)
-    [0x4F] = 100, -- Damage/recovery family; exact role unconfirmed
-    [0x50] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x51] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x52] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x53] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x54] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x55] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x56] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x57] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x58] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x59] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x5A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x5B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x5C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x5D] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x5E] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x5F] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x60] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x61] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x62] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x63] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x64] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x65] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x66] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x67] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x68] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x69] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x6A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x6B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x6C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x6D] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x6E] = 75, -- Parry reaction 1 (user-tested)
-    [0x6F] = 75, -- Parry reaction 2 (user-tested)
-    [0x70] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x71] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x72] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x73] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x74] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x75] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x76] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x77] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x78] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x79] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x7A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x7B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x7C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x7D] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x7E] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x7F] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x80] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x81] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x82] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x83] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x84] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x85] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x86] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x87] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x88] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x89] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x8A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x8B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x8C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x8D] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x8E] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x8F] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x90] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x91] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x92] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x93] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x94] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x95] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x96] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x97] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x98] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x99] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x9A] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x9B] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x9C] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x9D] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x9E] = 100, -- Unidentified / not confirmed by supplied captures
-    [0x9F] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA0] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA1] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA2] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA3] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA4] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA5] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA6] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA7] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA8] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xA9] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xAA] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xAB] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xAC] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xAD] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xAE] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xAF] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB0] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB1] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB2] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB3] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB4] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB5] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB6] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB7] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB8] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xB9] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xBA] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xBB] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xBC] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xBD] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xBE] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xBF] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC0] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC1] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC2] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC3] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC4] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC5] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC6] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC7] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xC8] = 100, -- Ground Combo 1 / Sonic Blade 1
-    [0xC9] = 100, -- Ground Combo 2 / Sonic Blade 2
-    [0xCA] = 100, -- Sonic Blade 3
-    [0xCB] = 100, -- Ground Combo Finisher (Possible raid catch)
-    [0xCC] = 100, -- Air Combo 1
-    [0xCD] = 100, -- Air Combo 2
-    [0xCE] = 100, -- Air Combo Finisher
-    [0xCF] = 100, -- Slapshot
-    [0xD0] = 100, -- Sliding Dash
-    [0xD1] = 100, -- Hurricane Blast
-    [0xD2] = 100, -- Ars Arcanum phase 1 / Blitz
-    [0xD3] = 100, -- Ars Arcanum phase 2 / Vortex (recording-confirmed)
-    [0xD4] = 100, -- Ars Arcanum phase 3 / Guard
-    [0xD5] = 100, -- Ars Arcanum phase 4
-    [0xD6] = 100, -- Ars Arcanum phase 5 / Aerial Sweep
-    [0xD7] = 100, -- Ars Arcanum phase 6 / Ripple Drive
-    [0xD8] = 100, -- Ars Arcanum phase 7 / Stun Impact
-    [0xD9] = 100, -- Ars Arcanum phase 8 / Gravity Break
-    [0xDA] = 100, -- Ars Arcanum phase 9 / Zantetsuken
-    [0xDB] = 100, -- Ars Arcanum phase 10
-    [0xDC] = 100, -- Ars Arcanum phase 11 / Dodge Roll (recording-confirmed)
-    [0xDD] = 100, -- Ars Arcanum phase 12
-    [0xDE] = 100, -- Ars Arcanum phase 13
-    [0xDF] = 100, -- Ars Arcanum phase 14
-    [0xE0] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xE1] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xE2] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xE3] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xE4] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xE5] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xE6] = 150, -- Strike Raid opening phase (sequence-capture confirmed)
-    [0xE7] = 100, -- Strike Raid standard throw (motion-dump confirmed)
-    [0xE8] = 100, -- Judgement Raid / final throw (motion-dump confirmed)
-    [0xE9] = 100, -- Strike Raid throw-to-catch transition (sequence inference)
-    [0xEA] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xEB] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xEC] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xED] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xEE] = 100, -- Strike Raid catch / recovery (motion-dump confirmed)
-    [0xEF] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xF0] = 100, -- Ragnarok phase 1 (protected)
-    [0xF1] = 100, -- Ragnarok phase 2 (protected)
-    [0xF2] = 100, -- Ragnarok phase 3 (protected)
-    [0xF3] = 100, -- Ragnarok phase 4 (protected)
-    [0xF4] = 100, -- Ragnarok phase 5 (protected)
-    [0xF5] = 100, -- Ragnarok phase 6 (protected)
-    [0xF6] = 100, -- Ragnarok charged release phase (protected)
-    [0xF7] = 100, -- Ragnarok projectile finisher (protected)
-    [0xF8] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xF9] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xFA] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xFB] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xFC] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xFD] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xFE] = 100, -- Unidentified / not confirmed by supplied captures
-    [0xFF] = 100, -- Unidentified / not confirmed by supplied captures
-}
+local SPEED_SETTINGS = ADJUSTMENTS.sora_animation_speed_percent
+local MODDED_V13_SPEED_PERCENT = SPEED_SETTINGS.replacement_visuals
+local NATIVE_ID_DEFAULT_SPEED_PERCENT = SPEED_SETTINGS.native_default
+local ID_SPEED_PERCENT = SPEED_SETTINGS.native_by_id
 
 local ID_NAME = {
     [0x00] = "Idle / base locomotion (recorded)",
-    [0x01] = "Locomotion and action blend transition (recorded; shared)",
-    [0x02] = "Walk / run / common locomotion state (recorded; shared)",
+    [0x01] = "Walk (recorded; visually routed to native Run)",
+    [0x02] = "Run (recorded)",
     [0x04] = "Jump ascent (recorded)",
     [0x05] = "Jump apex / transition to falling (recorded)",
     [0x06] = "Falling (recorded)",
@@ -4905,7 +5136,7 @@ local function selectSpeed(sora, action, animation, slot)
     local idKey = string.format("ID_%02X", animation)
     local idPercent = checkedPercent(
         idKey,
-        ID_SPEED_PERCENT[animation] or 100
+        ID_SPEED_PERCENT[animation] or NATIVE_ID_DEFAULT_SPEED_PERCENT
     )
     local idName = ID_NAME[animation]
         or "Unidentified runtime animation"
@@ -5057,15 +5288,687 @@ end
     return { name = "SoraMoveSpeedV3", init = moduleInit, frame = moduleFrame, enabled = true }
 end
 
+local function buildReplacementDamage()
+    -- ====================================================================
+    -- BEGIN EMBEDDED CONTROLLER: ReplacementDamageV19
+    -- ====================================================================
+-- Kingdom Hearts Final Mix (Steam)
+-- Replacement-only pre-commit damage multiplier v19, validated and merged.
+--
+-- The executable hook runs inside the game's verified final HP-adjust
+-- function before HP is clamped or death is processed. Lua changes one
+-- multiplier float only while a proven replacement context is active.
+--
+-- Scope (defaults are shown in the top ADJUSTMENTS table):
+--   * C8 and C9 standard replacement Raid: separately adjustable
+--   * D0 replacement Judgement Raid: adjustable
+--   * routed CD/CE replacement Ragnarok: adjustable
+--   * damage to Sora: never scaled by this hook
+--   * healing/nonnegative HP deltas: never scaled by this hook
+--
+-- The isolated v19 test passed. Start a fresh game process after adding or
+-- removing this merged controller because the executable hook is process-local.
+
+-- ========================================================================
+-- SETTINGS ALIASES: VALUES LIVE IN THE TOP ADJUSTMENTS TABLE
+-- ========================================================================
+
+local ENABLE_REPLACEMENT_DAMAGE_SCALING = true
+local C8_STANDARD_RAID_DAMAGE_MULTIPLIER =
+    ADJUSTMENTS.damage_multiplier.C8_STANDARD_RAID
+local C9_STANDARD_RAID_DAMAGE_MULTIPLIER =
+    ADJUSTMENTS.damage_multiplier.C9_STANDARD_RAID
+local D0_JUDGEMENT_RAID_DAMAGE_MULTIPLIER =
+    ADJUSTMENTS.damage_multiplier.D0_JUDGEMENT_RAID
+local REPLACEMENT_RAGNAROK_DAMAGE_MULTIPLIER =
+    ADJUSTMENTS.damage_multiplier.REPLACEMENT_RAGNAROK
+
+local RAID_COLLISION_TAIL_TICKS = 30
+local RAGNAROK_TASK_START_GRACE_TICKS = 120
+local REPORT_FILENAME = "KH1FM_SoraMoveset_AllInOne_v2_Damage_Report.txt"
+
+-- ========================================================================
+-- VERIFIED STEAM LAYOUT
+-- ========================================================================
+
+local SORA_POINTER = 0x2537E48
+local POINTER_BANK_TABLE = 0x2EE3980
+
+local CURRENT_ACTION_ID_OFFSET = 0x70
+local CURRENT_ANIMATION_OFFSET = 0x164
+local RESOLVED_INDEX_OFFSET = 0x168
+local ANIMATION_TIME_OFFSET = 0x16C
+local ACTIVE_POINTER_ARRAY_OFFSET = 0x1D4
+
+local PROJECTILE_TASK_LAST = 0x2F114B8
+local PROJECTILE_TASK_HANDLE = 0x2F114C8
+
+local POINTER_RESOLVER_RVA = 0x38ADC0
+local POINTER_RESOLVER_SIGNATURE = {
+    0x85, 0xC9, 0x75, 0x03, 0x33, 0xC0,
+    0xC3, 0xE9, 0x74, 0x01, 0x00, 0x00,
+}
+
+local FINAL_HP_ADJUST_RVA = 0x2A4920
+local FINAL_HP_ADJUST_SIGNATURE = {
+    0x48, 0x89, 0x74, 0x24, 0x10,
+    0x48, 0x89, 0x7C, 0x24, 0x18,
+    0x41, 0x56, 0x48, 0x83, 0xEC, 0x20,
+}
+
+-- At module+0x2A4930 the original routine copies the target and signed HP
+-- delta into nonvolatile registers. The six-byte patch calls the private
+-- padding hook and then resumes at the next untouched instruction.
+local HOOK_CALLSITE_RVA = 0x2A4930
+local HOOK_CALLSITE_ORIGINAL = {
+    0x48, 0x8B, 0xF1, 0x44, 0x8B, 0xF2,
+}
+local HOOK_CALLSITE_PATCH = {
+    0xE8, 0x1B, 0xA8, 0x10, 0x00, 0x90,
+}
+
+-- The final 0xB0 bytes of .nep are raw/virtual executable alignment padding
+-- in the supplied Steam executable. The hook occupies 53 bytes of that
+-- verified zero region. Its multiplier float is kept separately at 0x3AF1F0.
+local HOOK_CAVE_RVA = 0x3AF150
+local HOOK_CAVE_BYTES = {
+    0x48, 0x89, 0xCE, 0x41, 0x89, 0xD6, 0x45, 0x85,
+    0xF6, 0x7D, 0x29, 0x48, 0x3B, 0x0D, 0xE6, 0x8C,
+    0x18, 0x02, 0x74, 0x20, 0x66, 0x41, 0x0F, 0x6E,
+    0xC6, 0x0F, 0x5B, 0xC0, 0xF3, 0x0F, 0x59, 0x05,
+    0x7C, 0x00, 0x00, 0x00, 0xF3, 0x44, 0x0F, 0x2D,
+    0xF0, 0x45, 0x85, 0xF6, 0x75, 0x06, 0x41, 0xBE,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xC3,
+}
+local DAMAGE_MULTIPLIER_RVA = 0x3AF1F0
+
+local ID_C8 = 0xC8
+local ID_C9 = 0xC9
+local ID_CD = 0xCD
+local ID_CE = 0xCE
+local ID_D0 = 0xD0
+
+local SLOT_C8 = 0x0062
+local SLOT_C9 = 0x0063
+local SLOT_CD = 0x0067
+local SLOT_CE = 0x0068
+local SLOT_D0 = 0x006A
+local SLOT_RAGNAROK_CONTAINER = 0x006F
+
+-- ========================================================================
+-- RUNTIME STATE
+-- ========================================================================
+
+local enabled = false
+local tick = 0
+local activeContext = "NONE"
+local activeName = ""
+local activeStartTick = 0
+local lastRelevantTick = 0
+local sawRagnarokTasks = false
+local currentMultiplier = 1.0
+local reportLines = {}
+local reportDirty = false
+
+-- ========================================================================
+-- LOGGING
+-- ========================================================================
+
+local function log(message)
+    ConsolePrint("[ReplacementDamageV19] " .. message)
+end
+
+local function saveReport()
+    if not reportDirty then
+        return
+    end
+    if io == nil or io.open == nil or SCRIPT_PATH == nil then
+        return
+    end
+    local file = io.open(SCRIPT_PATH .. "\\" .. REPORT_FILENAME, "w")
+    if file == nil then
+        return
+    end
+    file:write(table.concat(reportLines, "\n"))
+    file:write("\n")
+    file:close()
+    reportDirty = false
+end
+
+local function record(message, echo)
+    reportLines[#reportLines + 1] = message
+    reportDirty = true
+    if echo then
+        log(message)
+    end
+end
+
+-- ========================================================================
+-- SAFE MEMORY HELPERS
+-- ========================================================================
+
+local function unsigned32(value)
+    if value == nil then
+        return 0
+    end
+    if value < 0 then
+        return value + 4294967296
+    end
+    return value
+end
+
+local function safeReadByte(address, absolute)
+    local ok, value = pcall(ReadByte, address, absolute)
+    if not ok or value == nil then
+        return nil
+    end
+    return value
+end
+
+local function safeReadInt(address, absolute)
+    local ok, value = pcall(ReadInt, address, absolute)
+    if not ok or value == nil then
+        return nil
+    end
+    return unsigned32(value)
+end
+
+local function safeReadLong(address, absolute)
+    local ok, value = pcall(ReadLong, address, absolute)
+    if not ok or value == nil then
+        return nil
+    end
+    return value
+end
+
+local function safeReadFloat(address, absolute)
+    local ok, value = pcall(ReadFloat, address, absolute)
+    if not ok or value == nil then
+        return nil
+    end
+    return value
+end
+
+local function safeReadArray(address, length, absolute)
+    local ok, value = pcall(ReadArray, address, length, absolute)
+    if not ok or value == nil or #value < length then
+        return nil
+    end
+    return value
+end
+
+local function arraysEqual(left, right)
+    if left == nil or right == nil or #left ~= #right then
+        return false
+    end
+    for index = 1, #left do
+        if left[index] ~= right[index] then
+            return false
+        end
+    end
+    return true
+end
+
+local function isZeroArray(bytes)
+    if bytes == nil then
+        return false
+    end
+    for index = 1, #bytes do
+        if bytes[index] ~= 0 then
+            return false
+        end
+    end
+    return true
+end
+
+local function writeArrayChecked(address, bytes)
+    local ok, reason = pcall(WriteArray, address, bytes)
+    if not ok then
+        return false, tostring(reason)
+    end
+    local readback = safeReadArray(address, #bytes)
+    if not arraysEqual(readback, bytes) then
+        return false, "write did not verify"
+    end
+    return true
+end
+
+local function writeMultiplier(value)
+    local ok, reason = pcall(WriteFloat, DAMAGE_MULTIPLIER_RVA, value)
+    if not ok then
+        return false, tostring(reason)
+    end
+    local readback = safeReadFloat(DAMAGE_MULTIPLIER_RVA)
+    if readback == nil or math.abs(readback - value) > 0.0001 then
+        return false, "multiplier write did not verify"
+    end
+    currentMultiplier = value
+    return true
+end
+
+local function resolveCompressedPointer(encoded)
+    local value = unsigned32(encoded)
+    if value == 0 then
+        return 0
+    end
+    if value < 0x80000000 then
+        return value
+    end
+
+    local payload = value - 0x80000000
+    local bankIndex = math.floor(payload / 0x2000000)
+    local bankOffset = payload % 0x2000000
+    local bankBase = safeReadLong(POINTER_BANK_TABLE + bankIndex * 8)
+    if bankBase == nil or bankBase == 0 then
+        return 0
+    end
+    return bankBase + bankOffset
+end
+
+-- ========================================================================
+-- HOOK INSTALLATION
+-- ========================================================================
+
+local function validateSettings()
+    local settings = {
+        C8_STANDARD_RAID_DAMAGE_MULTIPLIER,
+        C9_STANDARD_RAID_DAMAGE_MULTIPLIER,
+        D0_JUDGEMENT_RAID_DAMAGE_MULTIPLIER,
+        REPLACEMENT_RAGNAROK_DAMAGE_MULTIPLIER,
+    }
+    for _, value in ipairs(settings) do
+        if type(value) ~= "number" or value <= 0.0 or value > 100.0 then
+            return false, "damage multipliers must be numbers above 0 and no greater than 100"
+        end
+    end
+    return true
+end
+
+local function installHook()
+    if not arraysEqual(
+        safeReadArray(FINAL_HP_ADJUST_RVA, #FINAL_HP_ADJUST_SIGNATURE),
+        FINAL_HP_ADJUST_SIGNATURE
+    ) then
+        return false, "final HP-adjust function signature mismatch"
+    end
+
+    if not arraysEqual(
+        safeReadArray(POINTER_RESOLVER_RVA, #POINTER_RESOLVER_SIGNATURE),
+        POINTER_RESOLVER_SIGNATURE
+    ) then
+        return false, "compressed-pointer resolver signature mismatch"
+    end
+
+    local callsite = safeReadArray(
+        HOOK_CALLSITE_RVA,
+        #HOOK_CALLSITE_ORIGINAL
+    )
+    local cave = safeReadArray(HOOK_CAVE_RVA, #HOOK_CAVE_BYTES)
+
+    if arraysEqual(callsite, HOOK_CALLSITE_PATCH) then
+        if not arraysEqual(cave, HOOK_CAVE_BYTES) then
+            return false, "hook call is present but cave signature differs"
+        end
+        local neutralOK, neutralReason = writeMultiplier(1.0)
+        if not neutralOK then
+            return false, neutralReason
+        end
+        return true, "verified an already-installed v19 hook"
+    end
+
+    if not arraysEqual(callsite, HOOK_CALLSITE_ORIGINAL) then
+        return false, "HP-adjust hook site is not original and is not v19"
+    end
+    if not isZeroArray(cave) then
+        return false, "private executable padding is not zero/unused"
+    end
+
+    local neutralOK, neutralReason = writeMultiplier(1.0)
+    if not neutralOK then
+        return false, neutralReason
+    end
+
+    local caveOK, caveReason = writeArrayChecked(HOOK_CAVE_RVA, HOOK_CAVE_BYTES)
+    if not caveOK then
+        return false, "hook cave install failed: " .. caveReason
+    end
+
+    local callOK, callReason = writeArrayChecked(
+        HOOK_CALLSITE_RVA,
+        HOOK_CALLSITE_PATCH
+    )
+    if not callOK then
+        return false, "hook call install failed: " .. callReason
+    end
+
+    return true, "installed the v19 pre-commit hook"
+end
+
+-- ========================================================================
+-- REPLACEMENT CONTEXT IDENTIFICATION
+-- ========================================================================
+
+local function getActivePointerArray(sora)
+    local encoded = safeReadInt(sora + ACTIVE_POINTER_ARRAY_OFFSET, true)
+    if encoded == nil then
+        return 0
+    end
+    return resolveCompressedPointer(encoded)
+end
+
+local function currentMotionMatchesRagnarok(sora, slot)
+    local pointerArray = getActivePointerArray(sora)
+    if pointerArray == 0 then
+        return false
+    end
+    local current = safeReadInt(pointerArray + slot * 4, true) or 0
+    local ragnarok = safeReadInt(
+        pointerArray + SLOT_RAGNAROK_CONTAINER * 4,
+        true
+    ) or 0
+    return current ~= 0 and current == ragnarok
+end
+
+local function readRawContext(sora)
+    if sora == nil or sora == 0 then
+        return "NONE", "", 0.0, 0, 0, 0
+    end
+
+    local action = safeReadInt(sora + CURRENT_ACTION_ID_OFFSET, true) or 0
+    local animation = safeReadByte(sora + CURRENT_ANIMATION_OFFSET, true) or 0
+    local slotValue = safeReadInt(sora + RESOLVED_INDEX_OFFSET, true) or 0
+    local slot = slotValue % 0x10000
+    local frame = safeReadFloat(sora + ANIMATION_TIME_OFFSET, true) or 0.0
+
+    if animation == ID_C8 and slot == SLOT_C8 then
+        return "RAID_STANDARD_C8", "C8 standard replacement Raid",
+            frame, animation, slot, action
+    end
+
+    if animation == ID_C9 and slot == SLOT_C9 then
+        return "RAID_STANDARD_C9", "C9 standard replacement Raid",
+            frame, animation, slot, action
+    end
+
+    if animation == ID_D0 and slot == SLOT_D0 then
+        return "RAID_JUDGEMENT_D0", "D0 replacement Judgement Raid",
+            frame, animation, slot, action
+    end
+
+    local possibleRagnarok = (animation == ID_CD and slot == SLOT_CD)
+        or (animation == ID_CE and slot == SLOT_CE)
+    if possibleRagnarok and currentMotionMatchesRagnarok(sora, slot) then
+        return "RAGNAROK_REPLACEMENT", "routed replacement Ragnarok",
+            frame, animation, slot, action
+    end
+
+    return "NONE", "", frame, animation, slot, action
+end
+
+local function projectileTasksActive()
+    local last = safeReadLong(PROJECTILE_TASK_LAST) or 0
+    local handle = safeReadInt(PROJECTILE_TASK_HANDLE) or 0
+    return last ~= 0 or handle ~= 0
+end
+
+local function multiplierForContext(context)
+    if context == "RAID_STANDARD_C8" then
+        return C8_STANDARD_RAID_DAMAGE_MULTIPLIER
+    end
+    if context == "RAID_STANDARD_C9" then
+        return C9_STANDARD_RAID_DAMAGE_MULTIPLIER
+    end
+    if context == "RAID_JUDGEMENT_D0" then
+        return D0_JUDGEMENT_RAID_DAMAGE_MULTIPLIER
+    end
+    if context == "RAGNAROK_REPLACEMENT" then
+        return REPLACEMENT_RAGNAROK_DAMAGE_MULTIPLIER
+    end
+    return 1.0
+end
+
+local function setContextMultiplier(context)
+    local value = multiplierForContext(context)
+    if math.abs(value - currentMultiplier) <= 0.0001 then
+        return true
+    end
+    local ok, reason = writeMultiplier(value)
+    if not ok then
+        record("FAILSAFE: could not set multiplier: " .. reason, true)
+        enabled = false
+        pcall(WriteFloat, DAMAGE_MULTIPLIER_RVA, 1.0)
+        return false
+    end
+    return true
+end
+
+local function beginContext(context, name, frame, animation, slot, action)
+    activeContext = context
+    activeName = name
+    activeStartTick = tick
+    lastRelevantTick = tick
+    sawRagnarokTasks = context == "RAGNAROK_REPLACEMENT"
+        and projectileTasksActive()
+
+    if not setContextMultiplier(context) then
+        return
+    end
+
+    record(string.format(
+        "CONTEXT START tick=%d context=%s name=%s multiplier=%.3f "
+            .. "action=0x%02X animation=0x%02X slot=0x%04X frame=%.2f tasks=%s",
+        tick,
+        context,
+        name,
+        currentMultiplier,
+        action,
+        animation,
+        slot,
+        frame,
+        tostring(projectileTasksActive())
+    ), true)
+    saveReport()
+end
+
+local function finishContext(reason)
+    if activeContext == "NONE" then
+        return
+    end
+
+    local oldContext = activeContext
+    local oldName = activeName
+    local duration = tick - activeStartTick + 1
+
+    activeContext = "NONE"
+    activeName = ""
+    activeStartTick = 0
+    lastRelevantTick = 0
+    sawRagnarokTasks = false
+
+    if not setContextMultiplier("NONE") then
+        return
+    end
+
+    record(string.format(
+        "CONTEXT END tick=%d context=%s name=%s duration_ticks=%d "
+            .. "multiplier=%.3f reason=%s",
+        tick,
+        oldContext,
+        oldName,
+        duration,
+        currentMultiplier,
+        reason
+    ), true)
+    saveReport()
+end
+
+local function updateContext(sora)
+    local rawContext, rawName, frame, animation, slot, action =
+        readRawContext(sora)
+    local tasksActive = projectileTasksActive()
+
+    if activeContext == "NONE" then
+        if rawContext ~= "NONE" then
+            beginContext(
+                rawContext,
+                rawName,
+                frame,
+                animation,
+                slot,
+                action
+            )
+        end
+        return
+    end
+
+    if rawContext == activeContext then
+        lastRelevantTick = tick
+        if activeContext == "RAGNAROK_REPLACEMENT" and tasksActive then
+            sawRagnarokTasks = true
+        end
+        return
+    end
+
+    if activeContext == "RAGNAROK_REPLACEMENT" then
+        if tasksActive then
+            sawRagnarokTasks = true
+            lastRelevantTick = tick
+            return
+        end
+
+        if sawRagnarokTasks then
+            finishContext("replacement Ragnarok task list became idle")
+        elseif tick - activeStartTick > RAGNAROK_TASK_START_GRACE_TICKS then
+            finishContext("replacement Ragnarok task list did not activate")
+        else
+            return
+        end
+    elseif rawContext ~= "NONE" then
+        finishContext("another replacement context began")
+    elseif tick - lastRelevantTick > RAID_COLLISION_TAIL_TICKS then
+        finishContext("replacement Raid collision tail ended")
+    else
+        return
+    end
+
+    if enabled and rawContext ~= "NONE" then
+        beginContext(
+            rawContext,
+            rawName,
+            frame,
+            animation,
+            slot,
+            action
+        )
+    end
+end
+
+-- ========================================================================
+-- PUBLIC CALLBACKS
+-- ========================================================================
+
+local function moduleInit()
+    enabled = false
+    tick = 0
+    activeContext = "NONE"
+    activeName = ""
+    activeStartTick = 0
+    lastRelevantTick = 0
+    sawRagnarokTasks = false
+    currentMultiplier = 1.0
+    reportLines = {}
+    reportDirty = false
+
+    record("KH1FM all-in-one v2 replacement damage report", false)
+    record(string.format(
+        "Requested multipliers: C8=%.3f C9=%.3f D0_judgement=%.3f replacement_ragnarok=%.3f",
+        C8_STANDARD_RAID_DAMAGE_MULTIPLIER,
+        C9_STANDARD_RAID_DAMAGE_MULTIPLIER,
+        D0_JUDGEMENT_RAID_DAMAGE_MULTIPLIER,
+        REPLACEMENT_RAGNAROK_DAMAGE_MULTIPLIER
+    ), false)
+
+    if not ENABLE_REPLACEMENT_DAMAGE_SCALING then
+        record("DISABLED: ENABLE_REPLACEMENT_DAMAGE_SCALING is false.", true)
+        saveReport()
+        return
+    end
+
+    local settingsOK, settingsReason = validateSettings()
+    if not settingsOK then
+        record("DISABLED: " .. settingsReason .. ".", true)
+        saveReport()
+        return
+    end
+
+    pcall(SetHertz, 60)
+    local hookOK, hookReason = installHook()
+    if not hookOK then
+        record("DISABLED: " .. hookReason .. ".", true)
+        saveReport()
+        return
+    end
+
+    enabled = true
+    record("READY: " .. hookReason .. "; neutral multiplier is 1.000.", true)
+    record(
+        "The multiplier is applied before HP clamp/death and never scales damage to Sora or healing.",
+        true
+    )
+    saveReport()
+end
+
+local function moduleFrame()
+    if not enabled then
+        return
+    end
+
+    tick = tick + 1
+    local sora = safeReadLong(SORA_POINTER) or 0
+    if sora == 0 then
+        if activeContext ~= "NONE" then
+            finishContext("Sora pointer became unavailable")
+        elseif math.abs(currentMultiplier - 1.0) > 0.0001 then
+            local ok = writeMultiplier(1.0)
+            if not ok then
+                enabled = false
+            end
+        end
+        return
+    end
+
+    updateContext(sora)
+end
+
+    local function moduleFailSafe(reason)
+        enabled = false
+        activeContext = "NONE"
+        activeName = ""
+        activeStartTick = 0
+        lastRelevantTick = 0
+        sawRagnarokTasks = false
+        pcall(WriteFloat, DAMAGE_MULTIPLIER_RVA, 1.0)
+        currentMultiplier = 1.0
+        record("DISABLED after combined-controller error: " .. tostring(reason) .. "; multiplier reset to 1.000.", true)
+        saveReport()
+    end
+
+    return { name = "ReplacementDamageV19", init = moduleInit, frame = moduleFrame, fail = moduleFailSafe, enabled = true }
+end
+
 local MODULES = {
     buildComboVisuals(),
+    buildRaidThrowLength(),
     buildAutoPrime(),
     buildProjectileRoute(),
     buildMoveSpeed(),
+    -- Keep damage last, matching the validated standalone ZZ_ execution
+    -- order after visual routing and projectile task-state updates.
+    buildReplacementDamage(),
 }
 
 local function combinedLog(message)
-    print("[KH1FM_SoraMoveset_AllInOneV1] " .. message)
+    print("[KH1FM_SoraMoveset_AllInOneV2] " .. message)
 end
 
 local function runModuleCallback(module, callbackName)
@@ -5074,13 +5977,16 @@ local function runModuleCallback(module, callbackName)
     if callback == nil then return end
     local ok, reason = pcall(callback)
     if not ok then
+        if module.fail ~= nil then
+            pcall(module.fail, reason)
+        end
         module.enabled = false
         combinedLog(module.name .. " disabled after " .. callbackName .. " error: " .. tostring(reason))
     end
 end
 
 function _OnInit()
-    combinedLog("Loading four coordinated controllers; disable their standalone copies.")
+    combinedLog("Loading six coordinated controllers; disable their standalone copies.")
     for index = 1, #MODULES do
         runModuleCallback(MODULES[index], "init")
     end
