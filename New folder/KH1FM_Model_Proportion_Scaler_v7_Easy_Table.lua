@@ -46,9 +46,9 @@ LUAGUI_DESC = "Easy scale controls plus a complete grouped 293-joint reference"
 -- that situation.
 local SETTINGS = {
     WHOLE_MODEL = {
-        X = 1.25,
-        Y = 1.25,
-        Z = 1.25,
+        X = 1.15,
+        Y = 1.15,
+        Z = 1.15,
     },
 
     MY_SCALE_CONTROLS = {
