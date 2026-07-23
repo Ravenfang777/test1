@@ -1,5 +1,5 @@
 -- Kingdom Hearts Final Mix (Steam)
--- Sora moveset all-in-one controller v15 Zantetsuken/parry-fix revision 1.
+-- Sora moveset all-in-one controller v2 (centralized-settings revision).
 --
 -- Combines the validated controllers listed below. Every user-adjustable
 -- balance number is collected in the single table immediately below.
@@ -12,10 +12,8 @@
 --   Invulnerability:     start is inclusive; end is exclusive.
 --
 -- Change only numbers in this table, save the Lua, then fully restart KH1.
--- The v18 V15_ZANT_PARRY_FIX MSET is required. It starts byte-for-byte from
--- v15, changes only Zantetsuken's trigger tail, and leaves every locomotion
--- record untouched. The Lua converts v15's verified 1.50 throw paths to the
--- requested length when Sora's bank loads.
+-- The v15 RAID_DISTANCE_150 MSET is still required. The Lua converts its
+-- verified 1.50 throw paths to the requested length when Sora's bank loads.
 
 local ADJUSTMENTS = {
     damage_multiplier = {
@@ -37,8 +35,8 @@ local ADJUSTMENTS = {
             end_frame = 100.0,            -- ID 0xD4: replacement ends at frame 99
         },
         DC_DODGE_ZANTETSUKEN = {
-            start_frame = 49.0,           -- ID 0xDC: 12-frame protected finish
-            end_frame = 61.0,             -- ID 0xDC: clean exit occurs here
+            start_frame = 60.0,           -- ID 0xDC: protection begins here
+            end_frame = 72.0,             -- ID 0xDC: protection stops here
         },
     },
 
@@ -120,15 +118,14 @@ local ADJUSTMENTS = {
 
 local function buildComboVisuals()
     -- ====================================================================
-    -- BEGIN EMBEDDED CONTROLLER: SoraComboVisualsV13_V15ZantParryFix
+    -- BEGIN EMBEDDED CONTROLLER: SoraComboVisualsV13
     -- ====================================================================
 -- Kingdom Hearts Final Mix (Steam)
--- Combined Sora combo/visual controller v13 with a surgical v15-based
--- Zantetsuken and post-parry correction.
+-- Combined Sora combo/visual controller v13 with bank-safe motion routing.
 --
--- REQUIRED MSET (v18; v15 plus a changed Zantetsuken trigger tail only)
---   xa_ex_0010_SoraComboVisuals_v18_V15_ZANT_PARRY_FIX.mset
---   SHA-256: 1aa55b68165e2d6a1e72bb526531155bbfad23dd21c56e9e9a64534f43d93a7f
+-- REQUIRED MSET (v15; retains the validated v11 fixed layout)
+--   xa_ex_0010_SoraComboVisuals_v15_RAID_DISTANCE_150_POC.mset
+--   SHA-256: d6614beb26c9117c48c31ac83a277c97398de815d183a2f2826fb4b6a248ad2c
 --
 -- LAYOUT
 --   C8 ground attack 1: Raid throw -> real second press -> Raid catch
@@ -138,8 +135,6 @@ local function buildComboVisuals()
 --   CD air attack 2: Aerial Sweep -> real second press -> Ragnarok F7
 --   D4 Guard: Ripple visual/effect controls plus delayed invulnerability
 --   DC Dodge Roll: Zantetsuken visual plus delayed invulnerability
---   D5 immediately after a parry: temporary Vortex visual, preventing D5's
---       collision with the fixed-layout Ragnarok F7 storage container
 --
 -- No input is generated. This script never writes animation ID, resolved
 -- motion index, animation time, damage, hitbox, movement, HP, or speed.
@@ -180,9 +175,7 @@ local DODGE_INVULNERABILITY_START_FRAME =
 local DODGE_INVULNERABILITY_END_FRAME =
     ADJUSTMENTS.invulnerability_frames.DC_DODGE_ZANTETSUKEN.end_frame
 
--- Replaced Guard ends at frame 99. Replaced Dodge Roll/Zantetsuken exits at
--- frame 61, before the reported post-destination artifact. Lua preserves the
--- previous 12-frame protection duration as [49, 61).
+-- Replaced Guard ends at frame 99 and replaced Dodge Roll at frame 89.
 local MAX_DEFENSE_PROTECTION_FRAME = 110
 
 -- ========================================================================
@@ -208,16 +201,8 @@ local ID_CC = 0xCC
 local ID_CD = 0xCD
 local ID_CE = 0xCE
 local ID_D0 = 0xD0
-local ID_D3 = 0xD3
 local ID_D4 = 0xD4
-local ID_D5 = 0xD5
 local ID_DC = 0xDC
-local ID_PARRY_A = 0x6E
-local ID_PARRY_B = 0x6F
-
--- The after-parry route is armed for at most three seconds at 60 Hz. It
--- changes only the D5 motion pointer and restores it as soon as D5 exits.
-local AFTER_PARRY_ROUTE_TICKS = 180
 
 local SLOT_C8 = 0x0062
 local SLOT_C9 = 0x0063
@@ -227,7 +212,6 @@ local SLOT_CC = 0x0066
 local SLOT_CD = 0x0067
 local SLOT_CE = 0x0068
 local SLOT_D0 = 0x006A
-local SLOT_D3 = 0x006D
 local SLOT_D4 = 0x006E
 local SLOT_RAGNAROK_CONTAINER = 0x006F
 local SLOT_RIPPLE_GUARD_CONTAINER = 0x0071
@@ -247,7 +231,6 @@ local SLOT_DELTA_FROM_65 = {
     [SLOT_CD] = 0xAD00,
     [SLOT_CE] = 0x11BD0,
     [SLOT_D0] = 0x1C5C0,
-    [SLOT_D3] = 0x34720,
     [SLOT_D4] = 0x39C60,
     [SLOT_RAGNAROK_CONTAINER] = 0x3F500,
     [SLOT_RIPPLE_GUARD_CONTAINER] = 0x4F5E0,
@@ -264,7 +247,6 @@ local EXPECTED_FRAMES = {
     [SLOT_CD] = 56,
     [SLOT_CE] = 56,
     [SLOT_D0] = 76,
-    [SLOT_D3] = 76,
     [SLOT_D4] = 54,
     [SLOT_RAGNAROK_CONTAINER] = 80,
     [SLOT_RIPPLE_GUARD_CONTAINER] = 100,
@@ -364,12 +346,6 @@ local appliedPatches = {}
 local permanentPointerArray = 0
 local lastRouteError = nil
 local routesReadyAnnounced = false
-local afterParryRouteActive = false
-local afterParryPointerArray = 0
-local afterParryOriginalPointer = 0
-local afterParryReplacementPointer = 0
-local afterParryTicksRemaining = 0
-local afterParryAttackStarted = false
 
 -- Full-animation defense protection state. The write is intentionally kept
 -- independent from motion routing so a route reset cannot widen its scope.
@@ -382,7 +358,7 @@ local defenseManagesBit = false
 local defenseTimedOut = false
 
 local function log(message)
-    ConsolePrint("[SoraComboVisualsV13_V15ZantParryFix] " .. message)
+    ConsolePrint("[SoraComboVisualsV13] " .. message)
 end
 
 local function detail(message)
@@ -804,22 +780,13 @@ local function validateV11Signature(expected)
         end
     end
 
-    -- V18 keeps v15's complete Zantetsuken core but replaces the imported
-    -- Dodge Roll control tail with one nonoffensive frame-61 exit event.
-    if unsigned32(ReadInt(zantRoll + 0x8510, true)) ~= 0
-        or unsigned32(ReadInt(zantRoll + 0x8514, true)) ~= 1
-        or unsigned32(ReadInt(zantRoll + 0x8518, true)) ~= 0x8520
-        or unsigned32(ReadInt(zantRoll + 0x851C, true)) ~= 0xFFFFFFFF
-        or unsigned32(ReadInt(zantRoll + 0x8524, true)) ~= 1
+    -- The first Dodge control frame is scaled from 30/38 to 78.947/100.
+    local scaledRollFrame = ReadFloat(zantRoll + 0x8510 + 0x34, true)
+    if scaledRollFrame == nil
+        or scaledRollFrame < 78.0
+        or scaledRollFrame > 80.0
     then
-        return false, "slot 0x74 does not contain the v18 minimal Zantetsuken tail"
-    end
-    local cleanExitFrame = ReadFloat(zantRoll + 0x8520, true)
-    if cleanExitFrame == nil
-        or cleanExitFrame < 60.9
-        or cleanExitFrame > 61.1
-    then
-        return false, "slot 0x74 does not contain the v18 frame-61 Zantetsuken exit"
+        return false, "slot 0x74 does not contain the scaled v11 Dodge tail"
     end
     return true, nil
 end
@@ -848,15 +815,10 @@ local function inspectV11Layout(sora, allowTemporaryRoutes, allowPermanentRoutes
                 and motionPointersEqual(current, pointer65)
                 or ((slot == SLOT_CD or slot == SLOT_CE)
                     and motionPointersEqual(current, pointer6F)))
-        local afterParryValid = afterParryRouteActive
-            and pointerArray == afterParryPointerArray
-            and slot == SLOT_RAGNAROK_CONTAINER
-            and motionPointersEqual(current, expected[SLOT_D3])
 
         if not motionPointersEqual(current, expectedPointer)
             and not permanentlyValid
             and not temporarilyValid
-            and not afterParryValid
         then
             return nil, string.format(
                 "active MSET does not match v11 at slot 0x%02X "
@@ -1009,143 +971,6 @@ local function cleanAndApplyRoutes(sora)
     return true, nil
 end
 
-local function clearAfterParryRouteState()
-    afterParryRouteActive = false
-    afterParryPointerArray = 0
-    afterParryOriginalPointer = 0
-    afterParryReplacementPointer = 0
-    afterParryTicksRemaining = 0
-    afterParryAttackStarted = false
-end
-
-local function restoreAfterParryRoute(reason)
-    if not afterParryRouteActive then
-        return true, nil
-    end
-
-    local pointerArray = afterParryPointerArray
-    local current = readMotionPointer(pointerArray, SLOT_RAGNAROK_CONTAINER)
-    if motionPointersEqual(current, afterParryReplacementPointer) then
-        writeMotionPointer(
-            pointerArray,
-            SLOT_RAGNAROK_CONTAINER,
-            afterParryOriginalPointer
-        )
-        current = readMotionPointer(pointerArray, SLOT_RAGNAROK_CONTAINER)
-    end
-
-    if not motionPointersEqual(current, afterParryOriginalPointer) then
-        local routeError = string.format(
-            "after-parry D5 restore conflict: found 0x%08X",
-            current
-        )
-        clearAfterParryRouteState()
-        return false, routeError
-    end
-
-    detail("AFTER-PARRY FIX RESTORED: native v15 routing (" .. tostring(reason) .. ").")
-    clearAfterParryRouteState()
-    return true, nil
-end
-
-local function armAfterParryRoute(sora)
-    if afterParryRouteActive then
-        afterParryTicksRemaining = AFTER_PARRY_ROUTE_TICKS
-        return true, nil
-    end
-
-    local layout, layoutError = inspectV11Layout(sora, true, true)
-    if layout == nil then
-        return false, layoutError
-    end
-
-    local original = layout.expected[SLOT_RAGNAROK_CONTAINER]
-    local replacement = layout.expected[SLOT_D3]
-    local current = readMotionPointer(
-        layout.pointerArray,
-        SLOT_RAGNAROK_CONTAINER
-    )
-    if not motionPointersEqual(current, original) then
-        return false, string.format(
-            "D5/slot 0x6F changed before after-parry route (0x%08X)",
-            current
-        )
-    end
-
-    writeMotionPointer(
-        layout.pointerArray,
-        SLOT_RAGNAROK_CONTAINER,
-        replacement
-    )
-    local readback = readMotionPointer(
-        layout.pointerArray,
-        SLOT_RAGNAROK_CONTAINER
-    )
-    if not motionPointersEqual(readback, replacement) then
-        return false, "after-parry D5 route failed readback"
-    end
-
-    afterParryRouteActive = true
-    afterParryPointerArray = layout.pointerArray
-    afterParryOriginalPointer = original
-    afterParryReplacementPointer = replacement
-    afterParryTicksRemaining = AFTER_PARRY_ROUTE_TICKS
-    afterParryAttackStarted = false
-    log(
-        "AFTER-PARRY FIX ARMED: D5 temporarily uses native D3/Vortex; "
-            .. "walk and run slots are untouched."
-    )
-    return true, nil
-end
-
-local function updateAfterParryRoute(sora, animation, slot)
-    local isParry = animation == ID_PARRY_A or animation == ID_PARRY_B
-    if isParry then
-        return armAfterParryRoute(sora)
-    end
-
-    if not afterParryRouteActive then
-        return true, nil
-    end
-
-    local pointerArray = getActivePointerArray(sora)
-    if pointerArray ~= afterParryPointerArray then
-        return restoreAfterParryRoute("active motion bank changed")
-    end
-
-    local current = readMotionPointer(pointerArray, SLOT_RAGNAROK_CONTAINER)
-    if not motionPointersEqual(current, afterParryReplacementPointer) then
-        local routeError = string.format(
-            "after-parry D5 route changed unexpectedly to 0x%08X",
-            current
-        )
-        clearAfterParryRouteState()
-        return false, routeError
-    end
-
-    if animation == ID_D5 and slot == SLOT_RAGNAROK_CONTAINER then
-        if not afterParryAttackStarted then
-            afterParryAttackStarted = true
-            log(
-                "AFTER-PARRY FIX ACTIVE: D5 follow-up is displaying "
-                    .. "native D3/Vortex instead of Ragnarok F7 storage."
-            )
-        end
-        afterParryTicksRemaining = AFTER_PARRY_ROUTE_TICKS
-        return true, nil
-    end
-
-    if afterParryAttackStarted then
-        return restoreAfterParryRoute("D5 follow-up exited")
-    end
-
-    afterParryTicksRemaining = afterParryTicksRemaining - 1
-    if afterParryTicksRemaining <= 0 then
-        return restoreAfterParryRoute("three-second parry window expired")
-    end
-    return true, nil
-end
-
 local function verifyPermanentRoutes(layout)
     for _, route in ipairs(PERMANENT_ROUTES) do
         local expected = layout.expected[route.replacementSlot]
@@ -1281,10 +1106,6 @@ local function frameLogic()
             detail("DEFENSE RESET: Sora pointer became unavailable.")
             clearDefenseState()
         end
-        if afterParryRouteActive then
-            detail("AFTER-PARRY FIX RESET: Sora pointer became unavailable.")
-            clearAfterParryRouteState()
-        end
         if previousSora ~= 0 then
             resetSequence("Sora pointer unavailable")
         end
@@ -1298,10 +1119,6 @@ local function frameLogic()
         if defenseActive then
             detail("DEFENSE RESET: Sora pointer changed.")
             clearDefenseState()
-        end
-        if afterParryRouteActive then
-            detail("AFTER-PARRY FIX RESET: Sora pointer changed.")
-            clearAfterParryRouteState()
         end
         if not resetSequence("Sora pointer changed") then
             return
@@ -1331,18 +1148,6 @@ local function frameLogic()
             lastRouteError = nil
         end
 
-        local afterParryValid, afterParryError = updateAfterParryRoute(
-            sora,
-            animation,
-            slot
-        )
-        if not afterParryValid then
-            enabled = false
-            disabledReason = afterParryError
-            log("DISABLED: " .. afterParryError)
-            return
-        end
-
         local entry = findEntry(animation, slot)
         if entry ~= nil then
             beginEntry(entry, sora, animationFrame)
@@ -1353,34 +1158,11 @@ local function frameLogic()
     local currentArray = getActivePointerArray(sora)
     if currentArray ~= activePointerArray then
         local number = sequenceNumber
-        if afterParryRouteActive then
-            local restored, restoreError = restoreAfterParryRoute(
-                "active motion bank changed"
-            )
-            if not restored then
-                enabled = false
-                disabledReason = restoreError
-                log("DISABLED: " .. restoreError)
-                return
-            end
-        end
         resetSequence("active pointer array changed")
         detail(string.format(
             "SEQUENCE #%d aborted because the active motion bank changed.",
             number
         ))
-        return
-    end
-
-    local afterParryValid, afterParryError = updateAfterParryRoute(
-        sora,
-        animation,
-        slot
-    )
-    if not afterParryValid then
-        enabled = false
-        disabledReason = afterParryError
-        log("DISABLED: " .. afterParryError)
         return
     end
 
@@ -1449,7 +1231,6 @@ local function moduleInit()
     routesReadyAnnounced = false
     clearSequence()
     clearDefenseState()
-    clearAfterParryRouteState()
 
     if not enabled then
         disabledReason = "ENABLE_CONTROLLER is false"
@@ -1493,14 +1274,11 @@ local function moduleInit()
     if not routesReadyAnnounced then
         log("WAITING: v13 loaded, but main motion routing is not active yet.")
     end
-    log("Required asset is v18 V15_ZANT_PARRY_FIX, built directly from the validated v15 MSET.")
-    log("Locomotion slots 0x02-0x07 remain byte-identical to v15; no walk/run reroute is installed.")
+    log("Required asset is the v15 RAID_DISTANCE_150 MSET with the validated v11 fixed layout.")
     log("Ground C8/C9: Raid throw, real second press Raid catch.")
     log("Sliding Dash: Judgement Raid, real second press Raid catch.")
     log("Air CC/CD: Aerial Sweep, real second press routes through CE to Ragnarok F7.")
     log("Guard keeps Ripple effect/control events without Ripple's offensive type-4 groups.")
-    log("Dodge/Zantetsuken retains v15's visual core and exits through one clean event at frame 61.")
-    log("After a parry only, D5 temporarily displays native D3/Vortex instead of slot 0x6F's Ragnarok storage.")
     log(string.format(
         "Guard/Ripple invulnerability=[%.1f, %.1f); Dodge/Zantetsuken invulnerability=[%.1f, %.1f).",
         GUARD_INVULNERABILITY_START_FRAME,
@@ -1520,7 +1298,6 @@ local function moduleFrame()
     local ok, frameError = pcall(frameLogic)
     if not ok then
         pcall(resetSequence, "runtime error")
-        pcall(restoreAfterParryRoute, "runtime error")
         local sora = ReadLong(SORA_POINTER)
         if defenseActive
             and defenseManagesBit
@@ -1537,12 +1314,7 @@ local function moduleFrame()
     end
 end
 
-    return {
-        name = "SoraComboVisualsV13_V15ZantParryFix",
-        init = moduleInit,
-        frame = moduleFrame,
-        enabled = true,
-    }
+    return { name = "SoraComboVisualsV13", init = moduleInit, frame = moduleFrame, enabled = true }
 end
 
 local function buildAutoPrime()
@@ -5191,10 +4963,10 @@ local function moddedVisualContext(sora, action, animation, slot)
     local pointerArray = getActivePointerArray(sora)
     local currentMotion = readMotionPointer(pointerArray, slot)
     local catchMotion = readMotionPointer(pointerArray, SLOT_CB)
-    -- CE is permanently routed directly to the physical F7 container. Use
-    -- that stable pointer as the identity source because the surgical
-    -- after-parry fix temporarily repoints logical D5/slot 0x6F.
-    local ragnarokMotion = readMotionPointer(pointerArray, SLOT_CE)
+    local ragnarokMotion = readMotionPointer(
+        pointerArray,
+        SLOT_RAGNAROK_CONTAINER
+    )
     local rippleMotion = readMotionPointer(
         pointerArray,
         SLOT_RIPPLE_GUARD_CONTAINER
@@ -5870,9 +5642,10 @@ local function currentMotionMatchesRagnarok(sora, slot)
         return false
     end
     local current = safeReadInt(pointerArray + slot * 4, true) or 0
-    -- CE remains a direct pointer to physical F7 while logical D5/0x6F is
-    -- temporarily routed away from that storage after a parry.
-    local ragnarok = safeReadInt(pointerArray + SLOT_CE * 4, true) or 0
+    local ragnarok = safeReadInt(
+        pointerArray + SLOT_RAGNAROK_CONTAINER * 4,
+        true
+    ) or 0
     return current ~= 0 and current == ragnarok
 end
 
@@ -6086,7 +5859,7 @@ local function moduleInit()
     reportLines = {}
     reportDirty = false
 
-    record("KH1FM v15 Zantetsuken/parry-fix replacement damage report", false)
+    record("KH1FM all-in-one v2 replacement damage report", false)
     record(string.format(
         "Requested multipliers: C8=%.3f C9=%.3f D0_judgement=%.3f replacement_ragnarok=%.3f",
         C8_STANDARD_RAID_DAMAGE_MULTIPLIER,
@@ -6175,7 +5948,7 @@ local MODULES = {
 }
 
 local function combinedLog(message)
-    print("[KH1FM_SoraMoveset_V15_ZantParryFixV1] " .. message)
+    print("[KH1FM_SoraMoveset_AllInOneV2] " .. message)
 end
 
 local function runModuleCallback(module, callbackName)
